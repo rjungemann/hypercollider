@@ -106,20 +106,25 @@ if [[ -n "$TOOLCHAINS" ]]; then
   unset _tc
 fi
 
-# Detect sc3-plugins by checking for plugin files in known extension directories.
-# (sclang has no -e flag, so we cannot probe at the language level portably.)
-SC3_PLUGIN_DIRS=(
-  "$HOME/Library/Application Support/SuperCollider/Extensions/SC3plugins"
-  "/usr/local/share/SuperCollider/Extensions/SC3plugins"
-  "/usr/share/SuperCollider/Extensions/SC3plugins"
+# Detect sc3-plugins for the NATIVE toolchain only. HyperCollider's
+# wasm/wamr-full/wamr-aot builds link sc3-plugins into hcsynth.wasm
+# directly (see commit "Integrate sc3-plugins"), so plugin_heavy runs
+# everywhere except possibly native — where sclang/scsynth load .scx
+# files from the user's SuperCollider Extensions directory at runtime.
+# find/-maxdepth catches user-organised layouts.
+SC3_PLUGIN_ROOTS=(
+  "$HOME/Library/Application Support/SuperCollider/Extensions"
+  "/usr/local/share/SuperCollider/Extensions"
+  "/usr/share/SuperCollider/Extensions"
+  "/opt/homebrew/share/SuperCollider/Extensions"
 )
-for _dir in "${SC3_PLUGIN_DIRS[@]}"; do
-  if [[ -d "$_dir" ]]; then
+for _root in "${SC3_PLUGIN_ROOTS[@]}"; do
+  if [[ -d "$_root" ]] && find "$_root" -maxdepth 3 -type d -name "SC3plugins" 2>/dev/null | grep -q .; then
     HAVE_SC3_PLUGINS=true
     break
   fi
 done
-unset _dir
+unset _root
 
 # Per-toolchain "what's missing and how to fix it" hint. Printed in the
 # detection block when a toolchain is absent so users see the actionable
@@ -169,7 +174,8 @@ print_toolchain_grid() {
     fi
     printf "$fmt" "$tc" "$status" "$suffix"
   done
-  printf "$fmt" "sc3plugins" "$($HAVE_SC3_PLUGINS && echo ok || echo missing)" ""
+  printf "$fmt" "sc3plugins" "$($HAVE_SC3_PLUGINS && echo ok || echo missing)" \
+    "$($HAVE_SC3_PLUGINS || echo " — only needed for native toolchain (built-in for wasm/wamr)")"
 }
 
 if $LIST_TOOLCHAINS; then
@@ -280,12 +286,10 @@ jstr() { echo "\"$1\""; }   # wrap in JSON double-quotes (no escaping needed for
 # ── Validation helpers ─────────────────────────────────────────────────────────
 # Validate that a patch produced its expected output marker (Phase 12.4a).
 # Each bench patch ends with "BENCH_PATCH_<name>: OK".postln; for sanity
-# verification. plugin_heavy is skipped on WAMR (no sc3-plugins in WASI),
-# so validation is not required for it.
+# verification. All patches (including plugin_heavy) run on wamr toolchains
+# now that sc3-plugins is linked into hcsynth.wasm.
 _validate_patch_execution() {
   local patch="$1" log="$2"
-  # plugin_heavy is skipped on WAMR builds — no validation needed
-  [[ "$patch" == "plugin_heavy" ]] && return 0
 
   local expected_marker="BENCH_PATCH_${patch}: OK"
   if grep -q "$expected_marker" <<<"$log"; then
@@ -817,7 +821,6 @@ FIRST_PATCH="${PATCHES%%,*}"
 for phase in ${PHASES//,/ }; do
   for patch in ${PATCHES//,/ }; do
     [[ "$phase" == "startup" && "$patch" != "$FIRST_PATCH" ]] && continue
-    [[ "$patch" == "plugin_heavy" ]] && ! $HAVE_SC3_PLUGINS && continue
     for tc in native wasm wamr-full wamr-aot; do
       [[ "$tc" == "native" ]]    && ! $HAVE_NATIVE    && continue
       [[ "$tc" == "wasm"   ]]    && ! $HAVE_WASM      && continue
@@ -830,9 +833,11 @@ for phase in ${PHASES//,/ }; do
           *) continue ;;
         esac
       fi
-      # Match the per-cell skip: plugin_heavy can't run under wamr* (no sc3-plugins).
-      if [[ "$patch" == "plugin_heavy" ]]; then
-        case "$tc" in wamr-full|wamr-aot) continue ;; esac
+      # plugin_heavy on native requires SC3plugins/.scx files installed in the
+      # SuperCollider Extensions dir. wasm/wamr/wamr-full/wamr-aot have
+      # sc3-plugins linked into hcsynth.wasm, so they always work.
+      if [[ "$patch" == "plugin_heavy" && "$tc" == "native" ]] && ! $HAVE_SC3_PLUGINS; then
+        continue
       fi
       TOTAL_CELLS=$(( TOTAL_CELLS + 1 ))
     done
@@ -843,11 +848,6 @@ for phase in ${PHASES//,/ }; do
   for patch in ${PATCHES//,/ }; do
     # Startup is patch-independent — run once per toolchain only
     [[ "$phase" == "startup" && "$patch" != "$FIRST_PATCH" ]] && continue
-    # Skip plugin_heavy when sc3-plugins are absent
-    if [[ "$patch" == "plugin_heavy" ]] && ! $HAVE_SC3_PLUGINS; then
-      echo "  [skip] plugin_heavy (sc3-plugins not detected)"
-      continue
-    fi
 
     for tc in native wasm wamr-full wamr-aot; do
       # Skip toolchains not available
@@ -863,17 +863,12 @@ for phase in ${PHASES//,/ }; do
         esac
       fi
 
-      # plugin_heavy uses sc3-plugins UGens. The WASI build of hcsynth
-      # doesn't link sc3-plugins, so wamr-full/wamr-aot can't run this
-      # patch — they'd fail to load the synthdef and render silence.
-      # Skip explicitly so the row doesn't lie.
-      if [[ "$patch" == "plugin_heavy" ]]; then
-        case "$tc" in
-          wamr-full|wamr-aot)
-            echo "  [skip] plugin_heavy on $tc (sc3-plugins not in WASI build)"
-            continue
-            ;;
-        esac
+      # plugin_heavy on native requires sclang/scsynth to load SC3plugins/.scx
+      # from the user's Extensions dir. wasm/wamr/wamr-full/wamr-aot have
+      # sc3-plugins linked into hcsynth.wasm, so they always work.
+      if [[ "$patch" == "plugin_heavy" && "$tc" == "native" ]] && ! $HAVE_SC3_PLUGINS; then
+        echo "  [skip] plugin_heavy on native (SC3plugins/.scx not found in Extensions dir)"
+        continue
       fi
 
       DONE_CELLS=$(( DONE_CELLS + 1 ))

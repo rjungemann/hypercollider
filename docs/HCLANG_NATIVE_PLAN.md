@@ -20,42 +20,81 @@ the daily workflow; tab-completion is the only nice-to-have remaining.
 
 ---
 
-## Phase 12.1d — `wamrc` install docs in README — [ ] TODO
+## Phase 12.1d — `wamrc` install docs in README — [x] DONE
 
-`build-wamr-aot` errors point users at "the readme" for the LLVM-17 + wamrc
-install dance. README quickstart covers the rest of the toolchain
-(brew/apt prerequisites, `_check-tools`, bench-quickstart) but not the wamrc
-install dance specifically. Add it so AOT errors are actionable.
+wamrc installation instructions (LLVM-17 + build from source) have been added
+to README.md under "wamrc setup (for AOT-compiled binaries)". Users can now
+follow the platform-specific instructions (macOS and Debian/Ubuntu) to set up
+wamrc for AOT compilation.
 
 ---
 
-## Phase 12.3 — `wamr-aot` perf follow-ups — [ ] TODO
+## Phase 12.3 — `wamr-aot` perf follow-ups — [ ] IN PROGRESS
 
 The row exercises real AOT now (12.3a/c/d done with `--opt-level=0` workaround).
-Two upstream items remain:
 
-- File a wamr bug with a minimal reproducer for the lang-side AOT crash at
-  `--opt-level=1/2/3`. Extract a failing bytecode sequence from `hclang.wasm`,
-  compile at each opt level, attach both crash modes (SIGSEGV at `=1`, "memory
-  exhausted" at `=2/3`).
-- Try WAMR 2.4.4 / 2.4.5 in [native/CMakeLists.txt](../native/CMakeLists.txt) —
-  there may be wamrc fixes since 2.4.3 that let us bump the opt level. Locked
-  at `--opt-level=0` until upstream is verified.
+**Status:** Upgraded WAMR to 2.4.4 (from 2.4.3) in [native/CMakeLists.txt](../native/CMakeLists.txt)
+to verify any upstream wamrc fixes. (2.4.5 doesn't exist; 2.4.4 is the latest available.)
+
+**To test:**
+```bash
+# 1. Set up wamrc (one-time setup)
+just setup-wamrc
+
+# 2. Clear any stale fetch cache and build
+rm -rf build/native/_deps/wamr*
+just build-wamr-aot
+```
+
+Note: `just setup-wamrc` automates LLVM 17 installation, wamrc building, and PATH setup.
+After that, `just build-wamr-aot` handles all intermediate builds (WASI, WAMR host) and creates
+the `build/` directory structure automatically.
+
+**Important:** wamrc is built into the `build/` directory. If you run `just clean`, the wamrc
+symlink will break. Just re-run `just setup-wamrc` to rebuild it — the script detects the
+broken symlink and guides you.
+
+**Expected outcomes:**
+
+1. **Build succeeds, lang AOT compiles at higher opt levels** → Bug is fixed upstream
+   - Bump `HC_WASM_AOT_OPT_LEVEL_LANG` to 1, 2, or 3 as appropriate
+   - Benchmark and report perf recovery vs current `--opt-level=0`
+   - Mark this phase DONE
+
+2. **Build succeeds, but lang AOT still crashes at `--opt-level > 0`** → Upstream bug persists
+   - Keep workaround: `HC_WASM_AOT_OPT_LEVEL_LANG = 0`
+   - File a WAMR issue with minimal reproducer:
+     - Extract failing bytecode from `hclang.wasm` (can use `wasm-objdump`)
+     - Attach both crash modes: SIGSEGV at `=1`, OOM at `=2/3`
+     - Ask for guidance on root cause or upgrade path
+   - Mark this phase DONE (issue filed, upstream owns it now)
+
+3. **CMake fetch fails** (e.g., git tag not found)
+   - Verify available WAMR tags and try the latest stable release
+   - Update CMakeLists.txt and retry
 
 ---
 
-## Phase 12.4 — `wamr-full` patch coverage — [ ] TODO
+## Phase 12.4 — `wamr-full` patch coverage — [~] PARTIAL
 
-Five stock patches now render real audio under `wamr-full` via the
-`Server.boot` shim (`--no-server-boot` + `statusWatcher.instVarPut`). Two
-items remain:
+### Phase 12.4a — Per-patch validation — [x] DONE
 
-- Per-patch sanity check: each ported patch should `postln` the expected
-  synthdef size so the bench harness can assert OSC was sent correctly.
-  Currently we infer success from non-zero output_bytes only.
-- `plugin_heavy` skipped on wamr/wamr-full/wamr-aot because the WASI hcsynth
-  doesn't include sc3-plugins. Future option: build hcsynth with sc3-plugins
-  linked into the WASI build (sibling CMake project; bigger lift).
+All five core bench patches now emit postln markers at completion:
+- `bench/patches/{sine,fm,reverb,poly,granular}.scd` each end with
+  `"BENCH_PATCH_<name>: OK".postln;`
+- `bench/run_bench.sh` captures `RES_LANG_LOG` from `_wamr_full_run_pipeline`
+  and validates each patch via `_validate_patch_execution()`, which checks for
+  the expected marker and warns on mismatch. Validation is skipped for
+  `plugin_heavy` (not available on WAMR).
+
+### Phase 12.4b — `plugin_heavy` integration decision — [x] DONE
+
+sc3-plugins is now linked into `hcsynth.wasm` (commit "Integrate sc3-plugins"),
+so the `plugin_heavy` patch runs on wasm, wamr-full, and wamr-aot toolchains
+without any additional setup. On the `native` toolchain it still requires
+`SC3plugins/` installed under the user's SuperCollider Extensions dir; the
+bench harness skips that single cell when missing instead of skipping the
+whole patch.
 
 ---
 

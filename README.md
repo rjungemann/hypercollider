@@ -20,6 +20,13 @@ Quickstart
 
 ### Build
 
+**Quick setup (recommended):**
+```bash
+source ./hypercollider.rc        # Sets up PATH, Emscripten SDK, and aliases
+just build                        # Build WASM modules (hclang + hcsynth)
+```
+
+**Manual setup:**
 ```bash
 # Activate Emscripten
 source /path/to/emsdk/emsdk_env.sh
@@ -79,31 +86,28 @@ Run `just _check-tools` to print presence/path or MISSING for each.
 
 ### wamrc setup (for AOT-compiled binaries)
 
-To build ahead-of-time (AOT) compiled WAMR binaries, you need the WAMR compiler toolchain:
+To build ahead-of-time (AOT) compiled WAMR binaries, you need wamrc (the WAMR compiler).
 
-**macOS (M-series / ARM):**
+**Automated setup (recommended):**
 ```bash
-# Install LLVM 17
-brew install llvm@17
-
-# Clone and build wamrc
-git clone https://github.com/bytecodealliance/wasm-micro-runtime.git
-cd wasm-micro-runtime/wamr-compiler
-./build.sh
-# Binary is at `./wamrc-1.3/bin/wamrc`; add to PATH or symlink to /usr/local/bin/wamrc
+just setup-wamrc    # Installs LLVM 17, builds wamrc, sets up PATH automatically
 ```
 
-**Debian/Ubuntu:**
-```bash
-# Install LLVM 17 and dependencies
-apt install llvm-17 clang-17 libllvm17 libclang-17-dev ninja-build
+That's it! The script handles:
+- Installing LLVM 17 (via Homebrew on macOS, apt on Linux)
+- Cloning WAMR and building wamrc
+- Setting up symlinks and PATH
+- Verifying the installation
 
-# Clone and build wamrc
-git clone https://github.com/bytecodealliance/wasm-micro-runtime.git
-cd wasm-micro-runtime/wamr-compiler
-./build.sh
-# Binary is at `./wamrc-1.3/bin/wamrc`; add to PATH or symlink to /usr/local/bin/wamrc
+After running `just setup-wamrc`, you can build AOT binaries:
+```bash
+just build-wamr-aot
 ```
+
+**Note:** wamrc is built into the `build/` directory. If you run `just clean`, you'll need to run `just setup-wamrc` again. The error message will remind you.
+
+**Manual setup (if needed):**
+If you prefer to set up wamrc yourself, see `scripts/setup-wamrc.sh` for the steps, or check `docs/HCLANG_NATIVE_PLAN.md` for detailed information.
 
 Once installed, `just build-aot` will compile WASM modules to native code using `wamrc` (currently at `--opt-level=0` due to upstream wamrc optimizer issues; see [HCLANG_NATIVE_PLAN.md Phase 12.3](docs/HCLANG_NATIVE_PLAN.md#phase-123--wamr-aot-perf-follow-ups--todo)).
 
@@ -111,6 +115,7 @@ Once installed, `just build-aot` will compile WASM modules to native code using 
 
 ```bash
 # Build the JS pipeline + WASI .wasm + standalone hosts in one shot.
+# This creates the build/ directories and produces hclang_native + hcsynth_native.
 just build-all
 
 # Smoke test the standalone binary (uses the embedded class library).
@@ -167,17 +172,18 @@ bash bench/run_bench.sh --list-toolchains
 
 ### Limits and known gaps
 
-- **AOT lang side**: `hclang.aot` loads but the SC parser hits an
-  out-of-bounds memory access mid-class-library compile. Synth side
-  AOT is fine. See plan §Phase 8 for the wamrc bisection plan.
-- **Server.boot in wamr-full**: the wamr-full pipeline doesn't yet
-  shim `Server.boot`, so SC patches that use `.play` send no OSC.
-  Use `bench/patches/wamr_full/<patch>.scd` (raw `/d_recv` + `/s_new`)
-  as a template until plan §12.4b lands.
-- **No sc3-plugins in WASI hcsynth**: the `plugin_heavy` bench patch
-  is auto-skipped under wamr-full for now (plan §12.4a).
-- **Frequency offset**: rendered sine measures ~468 Hz vs the
-  requested 440 Hz; pipeline is otherwise correct (plan §12.6).
+- **AOT lang side**: `hclang.aot` loads but the SC parser hits a crash
+  when compiling the class library with `--opt-level > 0` (SIGSEGV at 1,
+  OOM at 2+). Synth side AOT works fine at all opt levels.
+  Currently locked at `--opt-level=0` as a workaround. WAMR upgraded to 2.4.4
+  to test for upstream fixes; see `docs/HCLANG_NATIVE_PLAN.md` §Phase 12.3
+  for testing and bug-filing plan.
+- **sc3-plugins on native**: `plugin_heavy` is auto-skipped on the `native`
+  toolchain unless `SC3plugins/` is installed under your SuperCollider
+  Extensions dir. The wasm/wamr/wamr-full/wamr-aot toolchains have
+  sc3-plugins linked into `hcsynth.wasm` directly, so they always run.
+- **Frequency offset**: rendered sine measures ~468 Hz instead of the
+  requested 440 Hz; the pipeline is otherwise correct. Pending investigation.
 - **macOS arm64 only in CI**: Linux x86_64 also builds in CI, but
   Linux arm64 needs a self-hosted runner.
 
@@ -187,10 +193,11 @@ bash bench/run_bench.sh --list-toolchains
   Emscripten SDK: `source /path/to/emsdk/emsdk_env.sh`.
 - **Bench row says `output_bytes=0`** — the patch sent no OSC. Either
   the synthdef failed to load (check stderr from `hcsynth_native -v 1`),
-  or the patch uses `.play` and needs a wamr_full equivalent (plan §12.4a).
+  or the patch execution failed. Validation warnings in the benchmark output
+  will indicate if a patch did not produce expected output markers.
 - **`wamrc not found`** under `build-wamr-aot` — install LLVM 17 and
-  build wamrc from source. Brew's default LLVM (22) is too new for
-  wamrc 2.4.3. Full dance is in plan §Phase 8.
+  build wamrc from source. See the "wamrc setup" section above for platform-specific
+  instructions. Brew's default LLVM (22) is too new for wamrc 2.4.4.
 - **`HC_REQUIRE_EMBEDDED_WASM=ON ... .wasm not found`** — run
   `just build-wasi` first, or use `just build-all` which orders
   the dependencies correctly.
@@ -206,6 +213,7 @@ bash bench/run_bench.sh --list-toolchains
 Documentation
 -------------
 
+- `docs/BUILD_SYSTEM.md` — **Start here if confused about JS/WASI/WAMR/AOT** — explains why there are 4 build targets, what wamrc is, and tradeoffs
 - `docs/WASM_FEATURE_MATRIX.md` — supported features and known limitations
 - `docs/WASM_POST_LAUNCH_ENHANCEMENTS.md` — planned improvements
 - `docs/CLI_QUICKSTART.md` — getting started with the CLI tools

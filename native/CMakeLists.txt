@@ -69,7 +69,7 @@ endif()
 CPMAddPackage(
     NAME wamr
     GITHUB_REPOSITORY bytecodealliance/wasm-micro-runtime
-    GIT_TAG WAMR-2.4.3
+    GIT_TAG WAMR-2.4.4
     DOWNLOAD_ONLY YES
 )
 

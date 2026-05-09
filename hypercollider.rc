@@ -1,0 +1,66 @@
+#!/bin/bash
+# HyperCollider environment setup
+# Source this file to set up the build environment:
+#   source ./hypercollider.rc    (bash/zsh)
+#   . ./hypercollider.rc
+
+# Detect script directory (works in bash/zsh with various sourcing methods)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    echo "ERROR: hypercollider.rc must be sourced, not executed directly"
+    echo "Usage: source ./hypercollider.rc"
+    exit 1
+fi
+
+HYPERCOLLIDER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── wamrc (WAMR AOT compiler) ──────────────────────────────────────────────
+# Add wamrc to PATH if it exists in the standard locations
+
+if command -v wamrc &>/dev/null; then
+    # Already in PATH, nothing to do
+    :
+elif [[ -f "$HOME/.local/bin/wamrc" ]]; then
+    # User has built wamrc and symlinked it to ~/.local/bin
+    export PATH="$HOME/.local/bin:$PATH"
+    echo "✓ Added ~/.local/bin to PATH (wamrc found)"
+elif [[ -f "$HYPERCOLLIDER_DIR/build/native/_deps/wamr-src/wamr-compiler/build/wamrc" ]]; then
+    # wamrc was just built in the project tree
+    export PATH="$HYPERCOLLIDER_DIR/build/native/_deps/wamr-src/wamr-compiler/build:$PATH"
+    echo "✓ Added wamrc build dir to PATH"
+else
+    echo "⚠ wamrc not found. To build it:"
+    echo "  brew install llvm@17"
+    echo "  cd $HYPERCOLLIDER_DIR/build/native/_deps/wamr-src/wamr-compiler"
+    echo "  ./build.sh"
+    echo "  ln -sf \"\$(pwd)/wamrc\" ~/.local/bin/wamrc"
+fi
+
+# ── Emscripten SDK ────────────────────────────────────────────────────────
+# If emsdk_env.sh is available, source it for WASM builds
+
+if [[ -f "$HOME/emsdk/emsdk_env.sh" ]]; then
+    source "$HOME/emsdk/emsdk_env.sh" >/dev/null 2>&1
+    echo "✓ Emscripten SDK loaded"
+elif [[ -f "${EMSDK:-}/emsdk_env.sh" ]]; then
+    source "${EMSDK}/emsdk_env.sh" >/dev/null 2>&1
+    echo "✓ Emscripten SDK loaded"
+fi
+
+# ── Convenience aliases ────────────────────────────────────────────────────
+
+alias hc-build='just build'
+alias hc-build-all='just build-all'
+alias hc-bench='just bench'
+alias hc-bench-wamr-full='just bench-wamr-full'
+alias hc-bench-wamr-aot='just bench-wamr-aot'
+
+echo ""
+echo "HyperCollider environment ready. Available commands:"
+echo "  just build              Build WASM (JS + hclang + hcsynth)"
+echo "  just build-all          Build WASM + WASI + WAMR standalone binaries"
+echo "  just build-wamr-aot     Build WASM + WASI + WAMR with AOT (requires wamrc)"
+echo "  just bench              Run full benchmark suite"
+echo "  just bench-wamr-full    Benchmark WAMR-hosted binaries"
+echo "  just bench-wamr-aot     Benchmark WAMR AOT-compiled binaries"
+echo ""
+echo "Type 'just --list' to see all available recipes."

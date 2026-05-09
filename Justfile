@@ -57,6 +57,11 @@ build-cli:
 # native binaries (WAMR)" section. Full design + status:
 #   docs/HCLANG_NATIVE_PLAN.md
 
+# Automated wamrc setup. Installs LLVM 17, builds wamrc from WAMR source,
+# and sets up PATH. Run this once before using build-wamr-aot.
+setup-wamrc:
+    bash scripts/setup-wamrc.sh
+
 WASI_BUILD_DIR := "build/wasi"
 NATIVE_BUILD_DIR := "build/native"
 
@@ -69,7 +74,7 @@ _check-tools:
     @printf "  node  : "; command -v node   || echo MISSING
     @printf "  emcc  : "; command -v emcc   || echo "MISSING — install emsdk and 'source ./emsdk_env.sh'"
     @printf "  just  : "; command -v just   || echo MISSING
-    @printf "  wamrc : "; command -v wamrc  || echo "MISSING (only needed for build-wamr-aot; see docs/HCLANG_NATIVE_PLAN.md §Phase 8)"
+    @printf "  wamrc : "; command -v wamrc  || echo "MISSING (only needed for build-wamr-aot; run 'just setup-wamrc')"
     @printf "  sclang: "; command -v sclang || echo "MISSING (only needed for native bench rows)"
     @printf "  gtime : "; command -v gtime  || echo "MISSING (only needed for RSS in bench output; brew install gnu-time)"
 
@@ -94,20 +99,25 @@ build-wamr-host: build-wasi
     fi
     cmake --build {{NATIVE_BUILD_DIR}} --target hclang_native hcsynth_native -j{{JOBS}}
 
-# Build the AOT-compiled .aot files for hclang + hcsynth (Phase 8). Requires
-# wamrc on PATH (see docs/HCLANG_NATIVE_PLAN.md §Phase 8 for install dance).
+# Build the AOT-compiled .aot files for hclang + hcsynth. Requires wamrc on
+# PATH (see README.md wamrc setup section for install instructions).
 build-wamr-aot: build-wasi
     @WAMRC=$(command -v wamrc || echo ""); \
     if [ -z "$WAMRC" ]; then \
-        echo "ERROR: wamrc not found in PATH." >&2; \
-        echo "  See docs/HCLANG_NATIVE_PLAN.md §Phase 8 for install steps." >&2; \
-        echo "  Quick path on macOS arm64:" >&2; \
-        echo "    brew install llvm@17" >&2; \
-        echo "    cd build/native/_deps/wamr-src/wamr-compiler && mkdir -p build && cd build" >&2; \
-        echo "    cmake .. -DCMAKE_BUILD_TYPE=Release -DWAMR_BUILD_WITH_CUSTOM_LLVM=ON \\" >&2; \
-        echo "          -DLLVM_DIR=/opt/homebrew/opt/llvm@17/lib/cmake/llvm" >&2; \
-        echo "    cmake --build . -j\$(sysctl -n hw.ncpu)" >&2; \
-        echo "    ln -sf \"\$(pwd)/wamrc\" ~/.local/bin/wamrc" >&2; \
+        if [ -L "$$HOME/.local/bin/wamrc" ] && [ ! -f "$$HOME/.local/bin/wamrc" ]; then \
+            echo "ERROR: wamrc symlink is broken (build/ directory was cleaned)." >&2; \
+            echo "" >&2; \
+            echo "To rebuild wamrc:" >&2; \
+            echo "  just setup-wamrc" >&2; \
+            echo "" >&2; \
+        else \
+            echo "ERROR: wamrc not found in PATH." >&2; \
+            echo "" >&2; \
+            echo "To set up wamrc:" >&2; \
+            echo "  just setup-wamrc" >&2; \
+            echo "" >&2; \
+            echo "This script will install LLVM 17, build wamrc, and set up your PATH." >&2; \
+        fi; \
         exit 1; \
     fi; \
     if [ ! -f {{NATIVE_BUILD_DIR}}/CMakeCache.txt ] || \
