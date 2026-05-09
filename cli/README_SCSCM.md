@@ -51,9 +51,12 @@ node lhc.js sine.scscm | node hc.js --output sine.wav
 
 ## Documentation
 
-- `docs/scscm/SCSCM_GUIDE.md` - Comprehensive guide and examples
-- `docs/scscm/SCSCM_SPEC.md` - Formal syntax specification
-- `docs/scscm/SCSCM_LANGUAGE_FEATURES.md` - Macro and shorthand reference
+- `docs/scscm/SCSCM_QUICK_START.md` — 5-minute first-patch onboarding
+- `docs/scscm/SCSCM_LIVE_CODING_TUTORIAL.md` — Hands-on guided ambient project
+- `docs/scscm/SCSCM_PATTERN_TECHNIQUES.md` — Gallery of pattern strategies
+- `docs/scscm/SCSCM_CHEAT_SHEET.md` — One-page syntax lookup
+- `docs/scscm/SCSCM_LANGUAGE_REFERENCE.md` — Authoritative spec (BNF, macros, sclang→scscm migration appendix)
+- `docs/scscm/SCSCM_LANGUAGE_FEATURES_FUTURE.md` — Roadmap (destructuring, match, loop/recur, …)
 
 ## Example Scripts
 
@@ -162,7 +165,7 @@ platform/wasm/cli/
 
 ## Next Steps
 
-1. **Read** `docs/SCSCM_GUIDE.md` for detailed syntax and patterns
+1. **Read** `docs/scscm/SCSCM_QUICK_START.md` for 5-minute onboarding, then `docs/scscm/SCSCM_LANGUAGE_REFERENCE.md` for detailed syntax
 2. **Try** examples in `examples/` directory
 3. **Write** your first SynthDef in Scheme
 4. **Run** tests to verify implementation: `node test_scscm.js`

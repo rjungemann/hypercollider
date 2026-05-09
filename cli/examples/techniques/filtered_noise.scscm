@@ -1,0 +1,14 @@
+; filtered_noise.scscm — sweeping filtered noise
+;
+; White noise pushed through a band-pass filter whose center frequency
+; is modulated by a slow LFO. The "wind" or "ocean" sound.
+
+(defsynth wind (cf 800 rq 0.2 amp 0.15 gate 1)
+  (var lfo  (* 600 (SinOsc.kr 0.05)))           ; ±600 Hz sweep
+  (var src  (WhiteNoise.ar))
+  (var bp   (BPF.ar src (+ cf lfo) rq))
+  (var env  (EnvGen.kr (Env.asr 2 1 2) gate
+                       (dict :doneAction 2)))
+  (Out.ar 0 (* bp env amp)))
+
+(Synth "wind" (dict :cf 1200 :rq 0.15 :amp 0.4))

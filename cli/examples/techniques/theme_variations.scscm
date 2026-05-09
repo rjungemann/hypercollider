@@ -1,0 +1,23 @@
+; theme_variations.scscm — same theme, three variations played in sequence
+;
+; The melody (60 62 64 65) is presented three ways:
+;   1. Original
+;   2. Up an octave
+;   3. Reversed (retrograde)
+
+(defsynth tone (freq 440 amp 0.25 gate 1)
+  (var osc (SinOsc.ar freq 0))
+  (var env (EnvGen.kr (Env.perc 0.01 0.5) gate
+                      (dict :doneAction 2)))
+  (Out.ar 0 (* osc env amp)))
+
+(var theme           (list 60 62 64 65))
+(var theme-up        (list 72 74 76 77))
+(var theme-retrograde (list 65 64 62 60))
+
+(. (pbind
+     :instrument "tone"
+     :midinote   (pseq (++ theme (++ theme-up theme-retrograde)) inf)
+     :dur        0.3
+     :amp        0.25)
+   play)

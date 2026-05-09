@@ -1,0 +1,35 @@
+; logic_ops.scscm — combining beat patterns with logic operations
+;
+; Treat each rhythm as a boolean array (1 = hit, 0 = rest). Combining
+; two patterns with AND / OR / XOR gives entirely new rhythms from the
+; same source material.
+;
+;   A   = 1 0 1 0 1 0 1 0   (every beat)
+;   B   = 1 1 0 0 1 1 0 0   (pairs)
+;   AND = 1 0 0 0 1 0 0 0   (sparse — rare downbeats)
+;   OR  = 1 1 1 0 1 1 1 0   (dense — almost every step)
+;   XOR = 0 1 1 0 0 1 1 0   (off-beats — where they disagree)
+;
+; This patch plays the four patterns sequentially: A, B, OR, XOR.
+
+(defsynth click (freq 200 amp 0.4 gate 1)
+  (var osc (SinOsc.ar freq 0))
+  (var env (EnvGen.kr (Env.perc 0.001 0.1) gate
+                      (dict :doneAction 2)))
+  (Out.ar 0 (* osc env amp)))
+
+(. (pbind
+     :instrument "click"
+     :midinote   72
+     :dur        0.2
+     :amp        (pseq (list
+                        ; A — every beat
+                        0.4 0   0.4 0   0.4 0   0.4 0
+                        ; B — pairs
+                        0.4 0.4 0   0   0.4 0.4 0   0
+                        ; OR — dense
+                        0.4 0.4 0.4 0   0.4 0.4 0.4 0
+                        ; XOR — off-beats
+                        0   0.4 0.4 0   0   0.4 0.4 0)
+                       inf))
+   play)

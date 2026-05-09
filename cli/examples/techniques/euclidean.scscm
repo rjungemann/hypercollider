@@ -1,0 +1,19 @@
+; euclidean.scscm — Euclidean rhythm: 5 hits in 8 steps (Cuban tresillo + 2)
+;
+; The pattern (1 0 1 1 0 1 1 0) is the most-even distribution of 5 hits
+; across 8 beats. Drives a kick drum.
+
+(defsynth click (freq 200 amp 0.4 gate 1)
+  (var osc (SinOsc.ar freq 0))
+  (var env (EnvGen.kr (Env.perc 0.001 0.15) gate
+                      (dict :doneAction 2)))
+  (Out.ar 0 (* osc env amp)))
+
+; Euclidean(5, 8) = 1 0 1 1 0 1 1 0 → durations (rest, hit, hit, rest, hit, hit, rest, hit)
+; Encode as alternating amp/rest via :amp pattern
+(. (pbind
+     :instrument "click"
+     :midinote   60
+     :dur        0.25
+     :amp        (pseq (list 0.5 0 0.5 0.5 0 0.5 0.5 0) inf))
+   play)

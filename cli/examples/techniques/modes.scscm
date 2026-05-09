@@ -1,0 +1,17 @@
+; modes.scscm — Dorian mode arpeggios
+;
+; Ascends through D Dorian (D E F G A B C D). The same seven pitches
+; as C major, but starting on D — the result feels minor-and-jazzy.
+
+(defsynth tone (freq 440 amp 0.2 gate 1)
+  (var osc (SinOsc.ar freq 0))
+  (var env (EnvGen.kr (Env.perc 0.01 0.4) gate
+                      (dict :doneAction 2)))
+  (Out.ar 0 (* osc env amp)))
+
+(. (pbind
+     :instrument "tone"
+     :midinote   (pseq (list 62 64 65 67 69 71 72 74) inf)
+     :dur        0.25
+     :amp        0.25)
+   play)

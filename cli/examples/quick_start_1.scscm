@@ -1,0 +1,15 @@
+; quick_start_1.scscm — Your first scscm patch: a single sine tone
+;
+; Run with:
+;   node hcl.js -i cli/examples/quick_start_1.scscm
+;
+; You should hear a 1-second sine tone at A4 (440 Hz).
+
+(defsynth sine (freq 440 amp 0.1 gate 1)
+  (Out.ar 0
+    (* (SinOsc.ar freq 0)
+       (EnvGen.kr (Env.adsr 0.01 0.1 0.8 0.1) gate
+                  (dict :doneAction 2))
+       amp)))
+
+(Synth "sine" (dict :freq 440 :amp 0.1))

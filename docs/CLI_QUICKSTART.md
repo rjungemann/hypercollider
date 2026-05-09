@@ -110,13 +110,15 @@ Type SuperCollider code and press Enter to evaluate. Use `.quit` to exit.
 
 ## scscm dialect
 
-The CLI also supports the [scscm](../src/platform/wasm/cli/README_SCSCM.md) Scheme-like dialect:
+The CLI also supports the [scscm](../cli/README_SCSCM.md) Scheme-like dialect — see the [scscm Quick Start](scscm/SCSCM_QUICK_START.md):
 
 ```bash
-node src/platform/wasm/cli/hcl.js \
-  --input src/platform/wasm/cli/examples/sine_wave.scscm \
-  | node src/platform/wasm/cli/hc.js --output /tmp/scscm.wav
+node cli/lhc.js \
+  --input cli/examples/sine_wave.scscm \
+  | node cli/hc.js --output /tmp/scscm.wav
 ```
+
+For users without the repo, a single-file standalone build is published with each release (`lhc-standalone-vX.Y.Z` artifact). Run it with `node lhc.js`.
 
 ---
 

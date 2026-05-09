@@ -1,0 +1,17 @@
+; granular.scscm — many small grains layered
+;
+; Rapid-fire short tones at slightly varied pitches form a shimmering
+; cloud — a poor-man's granular synthesis using fast pbind events.
+
+(defsynth grain (freq 880 amp 0.05 gate 1)
+  (var osc (SinOsc.ar freq 0))
+  (var env (EnvGen.kr (Env.perc 0.005 0.05) gate
+                      (dict :doneAction 2)))
+  (Out.ar 0 (* osc env amp)))
+
+(. (pbind
+     :instrument "grain"
+     :midinote   (pwhite 80 92 inf)              ; random C5–G6 each grain
+     :dur        0.04                             ; 25 grains/sec
+     :amp        (pwhite 0.02 0.08 inf))
+   play)

@@ -1,0 +1,29 @@
+; canon.scscm — two-voice canon at the octave
+;
+; The same melody played by two voices, the second offset by half the
+; loop length. Classic round structure.
+
+(defsynth tone (freq 440 amp 0.2 gate 1)
+  (var osc (SinOsc.ar freq 0))
+  (var env (EnvGen.kr (Env.perc 0.01 0.5) gate
+                      (dict :doneAction 2)))
+  (Out.ar 0 (* osc env amp)))
+
+(var theme (list 60 62 64 65 67 65 64 62))
+
+; Voice A — original
+(. (pbind
+     :instrument "tone"
+     :midinote   (pseq theme inf)
+     :dur        0.4
+     :amp        0.25)
+   play)
+
+; Voice B — same theme, octave up, starting with 4 rests for offset
+; (4 rests × 0.4 sec = 1.6 sec delay, half the 3.2-sec loop)
+(. (pbind
+     :instrument "tone"
+     :midinote   (pseq (list 0 0 0 0 72 74 76 77 79 77 76 74) inf)
+     :dur        0.4
+     :amp        (pseq (list 0 0 0 0 0.18 0.18 0.18 0.18 0.18 0.18 0.18 0.18) inf))
+   play)

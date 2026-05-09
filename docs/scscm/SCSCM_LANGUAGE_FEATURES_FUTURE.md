@@ -1,7 +1,7 @@
 # SCSCM Language Features — Future Work
 
 Features designed but not yet implemented. See
-[SCSCM_LANGUAGE_FEATURES.md](SCSCM_LANGUAGE_FEATURES.md) for what shipped.
+[SCSCM_LANGUAGE_REFERENCE.md](SCSCM_LANGUAGE_REFERENCE.md) for what shipped.
 
 ---
 

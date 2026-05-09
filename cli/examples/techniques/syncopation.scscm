@@ -1,0 +1,17 @@
+; syncopation.scscm — alternating long/short durations
+;
+; A swing-feel rhythm: long-short-long-short via alternating durations.
+; The same notes feel very different from the straight version.
+
+(defsynth pluck (freq 440 amp 0.3 gate 1)
+  (var osc (SinOsc.ar freq 0))
+  (var env (EnvGen.kr (Env.perc 0.005 0.4) gate
+                      (dict :doneAction 2)))
+  (Out.ar 0 (* osc env amp)))
+
+(. (pbind
+     :instrument "pluck"
+     :midinote   (pseq (list 60 64 67 64) inf)
+     :dur        (pseq (list 0.667 0.333) inf)   ; 2:1 swing ratio
+     :amp        0.3)
+   play)

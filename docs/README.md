@@ -16,9 +16,15 @@ SuperCollider fork).
 
 ### scscm — Scheme-like SuperCollider dialect
 
-- **[scscm/SCSCM_GUIDE.md](scscm/SCSCM_GUIDE.md)** — User tutorial and syntax reference
-- **[scscm/SCSCM_SPEC.md](scscm/SCSCM_SPEC.md)** — Formal BNF grammar and lexical tokens
-- **[scscm/SCSCM_LANGUAGE_FEATURES.md](scscm/SCSCM_LANGUAGE_FEATURES.md)** — Shipped macros and special forms
+Documentation suite (read in order, or pick the entry point that matches your goal):
+
+- **[scscm/SCSCM_QUICK_START.md](scscm/SCSCM_QUICK_START.md)** — 5-minute first-patch onboarding
+- **[scscm/SCSCM_LIVE_CODING_TUTORIAL.md](scscm/SCSCM_LIVE_CODING_TUTORIAL.md)** — Hands-on guided ambient project (1–2 hours)
+- **[scscm/SCSCM_PATTERN_TECHNIQUES.md](scscm/SCSCM_PATTERN_TECHNIQUES.md)** — Gallery of 17 pattern strategies (Euclidean, polyrhythms, Markov, cellular automata, L-systems, logic ops, …)
+- **[scscm/SCSCM_CHEAT_SHEET.md](scscm/SCSCM_CHEAT_SHEET.md)** — One-page syntax lookup
+- **[scscm/SCSCM_LANGUAGE_REFERENCE.md](scscm/SCSCM_LANGUAGE_REFERENCE.md)** — Complete language spec including BNF grammar and sclang→scscm migration appendix (authoritative)
+
+The scscm compiler ships two ways: as `cli/lhc.js` (from the repo) and as a single-file standalone bundle `dist/lhc.js` produced by `just bundle-lhc` and uploaded to each GitHub release (artifact name: `lhc-standalone-vX.Y.Z`). The standalone bundle requires only a stock Node.js install — no `npm install`, no adjacent files.
 
 ### Plugins
 

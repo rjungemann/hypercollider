@@ -1,0 +1,20 @@
+; permutation.scscm — rotation through a 3-note motif
+;
+; Plays C-E-G, then E-G-C, then G-C-E — three rotations of the same
+; chord tones. Same notes, different starting point each rotation.
+
+(defsynth tone (freq 440 amp 0.25 gate 1)
+  (var osc (SinOsc.ar freq 0))
+  (var env (EnvGen.kr (Env.perc 0.01 0.4) gate
+                      (dict :doneAction 2)))
+  (Out.ar 0 (* osc env amp)))
+
+(. (pbind
+     :instrument "tone"
+     :midinote   (pseq (list 60 64 67   ; C E G
+                             64 67 60   ; E G C
+                             67 60 64)  ; G C E
+                       inf)
+     :dur        0.3
+     :amp        0.25)
+   play)

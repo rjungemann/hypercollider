@@ -224,13 +224,22 @@ node src/platform/wasm/cli/hcl_repl.js [--show-compiled] [--wasm-sclang | --nati
 
 ---
 
-## `hcl.js` — scscm to SC compiler
+## `lhc.js` — scscm to SC compiler
 
 Compiles a `.scscm` (Scheme-like dialect) file to SuperCollider sclang code.
 
 ```
-node src/platform/wasm/cli/hcl.js [options] <input>
+node cli/lhc.js [options] <input>
 ```
+
+Two equivalent forms:
+
+| Form | Path | When to use |
+|------|------|-------------|
+| Source-tree | `cli/lhc.js` | You have the repo checked out |
+| Standalone bundle | `dist/lhc.js` | Distributing to users — single file, no `npm install`, requires only Node.js |
+
+Build the standalone bundle with `just bundle-lhc` or download the `lhc-standalone-vX.Y.Z` artifact from the latest GitHub release.
 
 | Flag | Short | Description |
 |------|-------|-------------|
@@ -244,14 +253,16 @@ node src/platform/wasm/cli/hcl.js [options] <input>
 
 ```bash
 # Print generated sclang to stdout
-node src/platform/wasm/cli/hcl.js piece.scscm
+node cli/lhc.js piece.scscm
 
 # Write to a .sc file
-node src/platform/wasm/cli/hcl.js piece.scscm -o piece.sc
+node cli/lhc.js piece.scscm -o piece.sc
 
 # Compile and render in one pipeline
-node src/platform/wasm/cli/hcl.js piece.scscm \
-  | node src/platform/wasm/cli/hc.js --output piece.wav
+node cli/lhc.js piece.scscm | node cli/hc.js --output piece.wav
+
+# Standalone bundle (after `just bundle-lhc` or release download)
+node dist/lhc.js piece.scscm -o piece.sc
 ```
 
 ---

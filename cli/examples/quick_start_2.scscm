@@ -1,0 +1,21 @@
+; quick_start_2.scscm — A simple melodic sequence using pbind
+;
+; Run with:
+;   node hcl.js -i cli/examples/quick_start_2.scscm
+;
+; You should hear a four-note ascending arpeggio (C-E-G-C) repeating.
+
+(defsynth sine (freq 440 amp 0.1 gate 1)
+  (Out.ar 0
+    (* (SinOsc.ar freq 0)
+       (EnvGen.kr (Env.adsr 0.01 0.1 0.8 0.1) gate
+                  (dict :doneAction 2))
+       amp)))
+
+(. (pbind
+     :instrument "sine"
+     :midinote   (pseq (list 60 64 67 72) inf)   ; C4 E4 G4 C5
+     :dur        0.25
+     :amp        0.2
+     :legato     0.8)
+   play)

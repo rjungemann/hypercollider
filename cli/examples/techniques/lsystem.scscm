@@ -1,0 +1,51 @@
+; lsystem.scscm — L-system rhythm generation
+;
+; An L-system is a string-rewriting grammar. Start with an axiom; apply
+; production rules; repeat. Each generation gets longer and more complex,
+; but the structure is *self-similar* — patterns inside patterns.
+;
+; Grammar used here:
+;   axiom: K
+;   K -> K.S
+;   S -> K.S.
+;   . -> .
+;
+; Generations:
+;   gen 0: K
+;   gen 1: K.S
+;   gen 2: K.S.K.S.
+;   gen 3: K.S.K.S.K.S.K.S..
+;   gen 4: (32 cells; what we play below)
+;
+; K = kick (amp 0.5), S = snare-ish high tone (amp 0.4), . = rest (amp 0)
+
+(defsynth kick (freq 60 amp 0.5 gate 1)
+  (var osc (SinOsc.ar (* freq (EnvGen.kr (Env.perc 0 0.05) 1 4 1))))
+  (var env (EnvGen.kr (Env.perc 0.001 0.25) gate
+                      (dict :doneAction 2)))
+  (Out.ar 0 (* osc env amp)))
+
+(defsynth snare (freq 800 amp 0.4 gate 1)
+  (var osc (HPF.ar (WhiteNoise.ar) freq))
+  (var env (EnvGen.kr (Env.perc 0.001 0.12) gate
+                      (dict :doneAction 2)))
+  (Out.ar 0 (* osc env amp)))
+
+; Generation 4 of the grammar above, encoded as alternating
+; instrument and amp pairs (kick/snare/rest).
+; Pattern: K.S.K.S.K.S.K.S..K.S.K.S.K.S.K.S...K.S...
+
+(. (pbind
+     :instrument (pseq (list "kick"  "kick"  "snare" "kick"
+                             "kick"  "kick"  "snare" "kick"
+                             "kick"  "kick"  "snare" "kick"
+                             "kick"  "kick"  "snare" "kick")
+                       inf)
+     :midinote   60
+     :dur        0.2
+     :amp        (pseq (list 0.5 0    0.4  0
+                             0.5 0    0.4  0
+                             0.5 0    0.4  0
+                             0.5 0    0.4  0)
+                       inf))
+   play)
