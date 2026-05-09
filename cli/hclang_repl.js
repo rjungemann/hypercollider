@@ -16,6 +16,7 @@ const { createUdpClient } = require('./hc_net');
 const { createUnixBridge } = require('./hc_unix');
 const { MidiLearnManager } = require('./hc_midi_learn');
 const { PresetManager } = require('./hc_preset');
+const { compileScscmText } = require('./lhc_compile');
 
 function tryCreateMidiBridge(sclang) {
   try {
@@ -107,12 +108,14 @@ Live network options:
   --lang-udp-port <port>       Local UDP port for scsynth replies (optional)
   --protocol <udp|tcp>         Transport protocol (default: udp)
 
-REPL commands (at the sc> prompt):
+REPL commands (at the sc> or scscm> prompt):
   .quit / .exit                Exit the REPL
   .help                        Show this help
   .version                     Show version info
   .info                        Show runtime info (sample rate, mode, etc.)
-  .load <file.scd>             Load and evaluate a .scd file
+  .load <file.scd|file.scscm>  Load and evaluate a .scd or .scscm file
+  .scscm                       Enter scscm mode (prompt becomes scscm>)
+  .sc                          Exit scscm mode, return to sclang (prompt becomes sc>)
   .bench [n]                   Re-run last expression n times (default: 100) and report timing
   .record [seconds]            Start capturing audio to /tmp/hc_record_<ts>.wav
   .stop-record                 Stop capturing and write WAV file
@@ -503,6 +506,8 @@ async function runReplNetworkMode(opts) {
  */
 function runReplLoop(opts, sclang, info, recording, midiLearn, presetMgr, onClose) {
   let lastCode = null;
+  let scscmMode = false;
+  let parenDepth = 0;
 
   function evalCode(code) {
     const p = allocCString(sclang, code);
@@ -513,12 +518,16 @@ function runReplLoop(opts, sclang, info, recording, midiLearn, presetMgr, onClos
     }
   }
 
+  function getPrompt() {
+    return scscmMode ? 'scscm> ' : 'sc> ';
+  }
+
   console.log('[hclang_repl] Ready. Type SC code and press Enter. Type .quit to exit.\n');
 
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: 'sc> ',
+    prompt: getPrompt(),
     terminal: process.stdin.isTTY,
   });
 
@@ -561,6 +570,32 @@ function runReplLoop(opts, sclang, info, recording, midiLearn, presetMgr, onClos
         lines.push(`  scsynth:      ${info.protocol.toUpperCase()} ${info.scsynthHost}:${info.scsynthPort}`);
       }
       console.log('[hclang_repl] Runtime info:\n' + lines.join('\n'));
+      rl.prompt();
+      return;
+    }
+
+    if (trimmed === '.scscm') {
+      if (scscmMode) {
+        console.log('[hclang_repl] Already in scscm mode. Use .sc to switch back to sclang.');
+      } else {
+        scscmMode = true;
+        parenDepth = 0;
+        console.log('[hclang_repl] Entering scscm mode. Type .sc to return to sclang.');
+        rl.setPrompt(getPrompt());
+      }
+      rl.prompt();
+      return;
+    }
+
+    if (trimmed === '.sc') {
+      if (!scscmMode) {
+        console.log('[hclang_repl] Already in sclang mode. Use .scscm to switch to scscm.');
+      } else {
+        scscmMode = false;
+        parenDepth = 0;
+        console.log('[hclang_repl] Returning to sclang mode.');
+        rl.setPrompt(getPrompt());
+      }
       rl.prompt();
       return;
     }
@@ -764,7 +799,10 @@ function runReplLoop(opts, sclang, info, recording, midiLearn, presetMgr, onClos
     if (trimmed.startsWith('.load ')) {
       const filePath = path.resolve(trimmed.slice(6).trim());
       try {
-        const code = fs.readFileSync(filePath, 'utf8');
+        let code = fs.readFileSync(filePath, 'utf8');
+        if (filePath.endsWith('.scscm')) {
+          code = compileScscmText(code, filePath);
+        }
         lastCode = code;
         evalCode(code);
         console.log(`[hclang_repl] Loaded ${filePath}`);
@@ -776,12 +814,42 @@ function runReplLoop(opts, sclang, info, recording, midiLearn, presetMgr, onClos
     }
 
     try {
-      lastCode = trimmed;
-      evalCode(trimmed);
+      let codeToEval = trimmed;
+
+      if (scscmMode) {
+        for (const ch of trimmed) {
+          if (ch === '(') parenDepth++;
+          else if (ch === ')') parenDepth--;
+        }
+
+        if (parenDepth < 0) {
+          process.stderr.write('[hclang_repl] scscm: unbalanced parens (too many closing).\n');
+          parenDepth = 0;
+          rl.prompt();
+          return;
+        }
+
+        if (parenDepth > 0) {
+          rl.setPrompt('  ');
+          rl.prompt();
+          return;
+        }
+
+        codeToEval = compileScscmText(codeToEval, '<stdin>');
+      }
+
+      lastCode = codeToEval;
+      evalCode(codeToEval);
     } catch (e) {
       process.stderr.write(`[hclang_repl] eval error: ${e.message}\n`);
     }
 
+    if (scscmMode && parenDepth > 0) {
+      rl.setPrompt('  ');
+    } else {
+      parenDepth = 0;
+      rl.setPrompt(getPrompt());
+    }
     rl.prompt();
   });
 

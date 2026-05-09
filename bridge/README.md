@@ -258,7 +258,7 @@ These are not OSC — they are text frames handled by the bridge itself.
 
 | `type` | Direction | Description |
 |--------|-----------|-------------|
-| `eval` | Client → Server | Evaluate SC code in native sclang |
+| `eval` | Client → Server | Evaluate SC code in native sclang. Fields: `code` (required), `lang` ('scd'\|'scscm', default 'scd'), `filename` (string, for error context) |
 | `boot` | Client → Server | Start the native sclang process |
 | `quit` | Client → Server | Stop the native sclang process |
 | `status` | Client → Server | Request bridge status |

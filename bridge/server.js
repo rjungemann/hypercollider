@@ -287,12 +287,13 @@ function handleJSONMessage(ws, data) {
         }
         break;
 
-      case 'eval':
-        // Phase 8.2: Evaluate SuperCollider code
+      case 'eval': {
+        // Phase 8.2: Evaluate SuperCollier code
+        // Support: msg.code (sclang), msg.lang ('scscm'|'scd'), msg.filename (for error context)
         if (!sclangProcess) {
           setupHClangProcess();
         }
-        
+
         if (!sclangProcess.isReady()) {
           ws.send(JSON.stringify({
             type: 'post',
@@ -305,8 +306,28 @@ function handleJSONMessage(ws, data) {
           });
           return;
         }
-        
-        sclangProcess.evaluate(msg.code, {}, (result) => {
+
+        let codeToEval = msg.code;
+        const lang = msg.lang || 'scd';
+
+        // Compile scscm to sclang if needed
+        if (lang === 'scscm') {
+          try {
+            // Dynamically import the CommonJS scscm compiler
+            const { compileScscmText } = await import('../cli/lhc_compile.js');
+            const filename = msg.filename || '<eval>';
+            codeToEval = compileScscmText(codeToEval, filename);
+          } catch (err) {
+            ws.send(JSON.stringify({
+              type: 'post',
+              text: `scscm compilation error: ${err.message}`,
+              level: 'error',
+            }));
+            break;
+          }
+        }
+
+        sclangProcess.evaluate(codeToEval, {}, (result) => {
           if (result.error) {
             ws.send(JSON.stringify({
               type: 'post',
@@ -322,6 +343,7 @@ function handleJSONMessage(ws, data) {
           }
         });
         break;
+      }
 
       // Phase 8.4: OSC Recording
       case 'record_start':

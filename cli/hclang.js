@@ -10,6 +10,7 @@ const { getVersion, Logger, VERBOSITY_NORMAL } = require('./hc_utils');
 const { createUdpClient } = require('./hc_net');
 const { createMidiBridge } = require('./hc_midi');
 const { createUnixBridge } = require('./hc_unix');
+const { compileScscmText } = require('./lhc_compile');
 
 function parseArgs(argv) {
   const out = {
@@ -27,6 +28,8 @@ function parseArgs(argv) {
     noSnapshot: false,
     snapshotOut: null,
     scriptArgs: [],
+    lang: null,
+    scscmDebug: false,
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -47,6 +50,8 @@ function parseArgs(argv) {
     else if (a === '--scsynth-host') out.scsynthHost = next();
     else if (a === '--scsynth-port') out.scsynthPort = parseInt(next(), 10);
     else if (a === '--lang-udp-port') out.langUdpPort = parseInt(next(), 10);
+    else if (a === '--lang') out.lang = next();
+    else if (a === '--scscm-debug') out.scscmDebug = true;
     else if (a === '--call-stop') out.callStop = true;
     else if (a === '--print-ready') out.printReady = true;
     else if (a === '--print-timing') out.printTiming = true;
@@ -64,7 +69,7 @@ function parseArgs(argv) {
   }
 
   // --print-ready can be used without --script to measure startup time only.
-  if (!out.printReady && !out.script) throw new Error('Missing required --script <file.scd>');
+  if (!out.printReady && !out.script) throw new Error('Missing required --script <file.scd|file.scscm>');
 
   const hasExternalRoute = out.scsynthHost && out.scsynthPort;
   if (!out.printReady && !hasExternalRoute && !out.output) {
@@ -84,7 +89,7 @@ Usage (live routing — stream OSC directly to running hcsynth):
   hclang --script input.scd --scsynth-host 127.0.0.1 --scsynth-port 57110 [options]
 
 Required:
-  --script <file>              Input .scd file to evaluate
+  --script <file>              Input .scd or .scscm file to evaluate
 
 Offline options:
   --output <file>              Output JSON file (OSC commands)
@@ -100,6 +105,10 @@ Live routing options:
   --snapshot-out <path>        Save boot snapshot to <path> after a full cold boot (cmake use)
   -- <arg> [<arg> ...]         Extra args passed to the script via thisProcess.argv
 
+Compilation options:
+  --lang <scscm|scd>           Force input language (auto-detected by default)
+  --scscm-debug                Write compiled sclang to .compiled.sc for inspection
+
 Shared options:
   --verbosity <level>          Logging verbosity: -2 (silent) to 2 (debug)
                                (default: 0, normal)
@@ -108,9 +117,10 @@ Shared options:
 
 Examples:
   hclang --script sine.scd --output commands.json
+  hclang --script piece.scscm --output commands.json
+  hclang --script piece.scscm --output commands.json --scscm-debug
   hclang --script piece.scd --output commands.json --verbosity 1
   hclang --script sine.scd --scsynth-host 127.0.0.1 --scsynth-port 57110
-  hclang --script sine.scd --scsynth-host 127.0.0.1 --scsynth-port 57110 --lang-udp-port 57111
 
 Info:
   -h, --help                   Show this help and exit
@@ -363,7 +373,19 @@ async function runSclangCli(opts) {
   }
 
   const scriptPath = path.resolve(opts.script);
-  const script = fs.readFileSync(scriptPath, 'utf8');
+  let script = fs.readFileSync(scriptPath, 'utf8');
+
+  // Determine language from extension or explicit --lang flag
+  const isScscm = opts.lang === 'scscm' || (!opts.lang && scriptPath.endsWith('.scscm'));
+  if (isScscm) {
+    script = compileScscmText(script, scriptPath);
+    if (opts.scscmDebug) {
+      const debugPath = scriptPath + '.compiled.sc';
+      fs.writeFileSync(debugPath, script, 'utf8');
+      logger.info(`Wrote compiled scscm to ${debugPath}`);
+    }
+  }
+
   stage("script_load");
 
   const serverState = 'Server.default.statusWatcher.serverRunning = true; Server.default.statusWatcher.notified = true;';
