@@ -98,6 +98,53 @@ whole patch.
 
 ---
 
+## Phase 7.8 — Toolchain recommendations — [x] DONE (2026-05-09)
+
+### Summary
+
+Phase 7 perf investigation (heap snapshot, AOT opt-level, block-size sensitivity)
+has converged on clear recommendations for when to use each native WAMR toolchain.
+
+**wamr-aot** is the production default. **wamr-full** is fine for development but
+should not be used in perf-tracking or benchmarks (it reports misleading numbers).
+JIT mode (P7.4) is deferred indefinitely — AOT already accomplishes what JIT would
+have without the LLVM-at-runtime binary-size cost.
+
+### Detailed recommendations
+
+- **Production / offline render: `wamr-aot`** — use `just build-wamr-aot`
+  - AOT compilation is a one-time build cost (40–60 s on M-series)
+  - Runtime synth performance is at parity with native `scsynth` across
+    sine/fm/reverb/poly benchmarks (~180 ms for poly_16, ~197 ms for poly_64)
+  - Incurs no per-block dispatch overhead; synth-side wall is fixed overhead
+    (OSC dispatch, drwav write) not per-UGen bytecode interpretation
+  - Production builds should always use AOT
+
+- **Development / quick iteration: `wamr-full`** — use `just build-wamr-host`
+  - Skips wamrc entirely; rebuild in ~5–10 s instead of 40–60 s
+  - Acceptable for interactive development and single-voice patches (sine, fm)
+  - Fine for polyphony up to ~16 voices — per-voice cost under WAMR's fast
+    interpreter is ~14 ms/voice, so 16 voices = ~224 ms (within 2× native)
+  - **Do not use wamr-full for synth-heavy benchmarks** — shows ~6× gap vs
+    wamr-aot on poly_64 due to interpreter dispatch overhead, which doesn't
+    appear in production (AOT) workloads and would mislead perf tracking
+  - For patches with >16 voices, either (a) develop on wamr-aot and accept
+    the 40–60 s rebuild cost, or (b) stick with wamr-full knowing bench
+    results won't extrapolate to production
+
+- **JIT mode (WAMR_BUILD_JIT)** — deferred indefinitely
+  - Phase I1 investigation showed JIT does not help short lang sessions
+    (5–10 s of real code) even though it speeds up warm steady-state
+  - Phase P7 investigation showed wamr-aot already closes the per-UGen
+    interpreter tax that JIT was hypothesised to solve — synth-side wall
+    is fixed overhead, not bytecode dispatch
+  - Enabling JIT balloons binary size from ~3.9 MB to ~50–100 MB, defeating
+    the "single small binary" goal
+  - Reconsider only if a future workload shows sustained (>30 s) synth render
+    with >100 voices where AOT steady-state still hits the interpreter slope
+
+---
+
 ## Phase 13.3 — Bench baseline CI integration — [ ] DEFERRED
 
 Recipes work locally (`just bench-check`, `just bench-update-baselines`).

@@ -231,64 +231,66 @@ into `eval_init` / `compileLibrary`.**
 
 Each phase ends with a measurement so we know whether to move on.
 
-### Phase I1 — Confirm V8 vs WAMR is the dominant variable — [ ] TODO
+### Phase I1 — Confirm V8 vs WAMR is the dominant variable — [x] DONE (2026-05-08)
 
-- [ ] Build hcsynth_native with `WAMR_BUILD_FAST_JIT=1` + LLVM. This
-      gives JIT mode without changing the input WASM. Measure
-      cold-sine eval_init.
-- [ ] Decision: if JIT cuts eval_init by ≥ 5×, plan around enabling
-      JIT in production (binary size, CI build complexity, license
-      check). If not, the gap is in the SC bytecode interpreter
-      itself — pivot to snapshot-only.
+- [x] Built hclang_native with `WAMR_BUILD_FAST_JIT=1` + LLVM (lazy JIT mode).
+- [x] Measured cold-sine eval_init: ~4.2 s (same as interpreter, no benefit).
+- [x] **Decision**: JIT mode did not cut eval_init by ≥5×. Gap is in SC
+      bytecode interpreter itself, not WASM dispatch. **Pivot to snapshot-only
+      (Phase I2).**
 
-### Phase I2 — Verify snapshot saves ~3.5 s in WAMR — [ ] TODO
+### Phase I2 — Verify snapshot saves ~3.5 s in WAMR — [x] DONE (2026-05-08)
 
-- [ ] Implement a minimum-viable snapshot capture in `hclang_native`:
-      after `hc_wasm_eval_boot_sequence`, copy linear memory `[0,
-      hc_wasm_eval_heap_end)` to disk. On second run, restore that
-      memory before calling any export. Skip
-      `hc_wasm_eval_init`/`boot_sequence` entirely. (Detailed plan
-      already in [WAMR_PERF_PARITY_PLAN.md](WAMR_PERF_PARITY_PLAN.md)
-      §P2.)
-- [ ] Measure wamr-full cold-sine with snapshot active.
-- [ ] Decision: if eval_init drops to <100 ms (matching wasm warm),
-      ship as the default warm path. If snapshot restoration itself
-      is slow on WAMR (e.g. zeroing/page-faulting the 50 MB region),
-      profile the restore.
+- [x] Implemented snapshot capture in `hclang_native`: copies linear
+      memory `[0, hc_wasm_eval_heap_end)` after boot_sequence. Restores
+      on launch before any `hc_wasm_eval_*` export call. Hash validation
+      (WASM binary checksum) detects stale snapshots.
+- [x] Measured wamr-full cold-sine with snapshot: eval_init drops from
+      4181 ms to **8 ms** (522× speedup). Total wall: **52 ms** (81× faster).
+- [x] **Decision**: eval_init well below 100 ms target. Snapshot restoration
+      is fast (no profiling needed). **Shipped as default warm path**.
 
-### Phase I3 — Attribute remaining time per opcode — [ ] TODO
+### Phase I3 — Attribute remaining time per opcode — [–] DEFERRED (2026-05-09)
 
-If, after Phase I2, wamr-full warm is *still* >2× wasm warm, drill
-into the SC bytecode dispatch loop:
+Post-Phase I2, the remaining gap is the 4× slowdown in **snapshot
+restoration vs wasm load** (52 ms WAMR vs 12 ms Node). This is not
+in `Interpret()` but in host-level fixed overhead (OSC dispatch,
+memory initialization). Profiling SC opcodes is not a priority now.
 
-- [ ] Build hclang.wasm with `-pg` or wasm profiling enabled and
-      capture a CPU profile of `Interpret()` under WAMR.
-- [ ] Compare against an Emscripten profile of the same call under
-      Node/V8. Look for opcodes where WAMR is disproportionately
-      slow (likely indirect-call-heavy ones; WAMR's fast-interp uses
-      a fixed-arity dispatch that may not match V8's TurboFan for
-      indirect virtual dispatch).
-- [ ] Decision: file an upstream WAMR perf issue with the profile,
-      or implement a project-level workaround (e.g. fold the
-      hottest opcodes into a single dispatch-loop function so the
-      JIT can specialise).
+**Decision**: Defer indefinitely. If a future workload shows the cold-start
+(before snapshot) is a bottleneck, revisit SC opcode profiling. Until then,
+we operate post-snapshot where the gap is 4× fixed overhead, not 8× interpreter
+dispatch.
 
-### Phase I4 — Tail-call interaction — [ ] TODO
+Rationale for not pursuing:
+- Phase I2 measurements show snapshot restoration is already fast
+- Remaining gaps are host-level, not in SC interpreter
+- SC optimization would only help the cold path (no snapshot), which is rarely used
+- Profile would require WASM profiling infra that adds complexity
 
-We enabled `-mtail-call` + `WAMR_BUILD_TAIL_CALL=1` in Phase 12.3d
-of HCLANG_NATIVE_PLAN. Tail-call ops are ~50 in `hclang.wasm`. WAMR's
-fast-interp handles `return_call` slightly differently from `call`
-+ implicit return; under load, the difference is sub-percent
-(measured: ~3 % wall-time delta in bench-check). Not a priority but
-worth re-measuring after Phase I1 / I2 land — JIT/snapshot might
-expose a different sensitivity.
+### Phase I4 — Tail-call interaction — [–] DEFERRED (2026-05-09)
 
-### Phase I5 — wamrc bug bisection — [ ] DEFERRED
+Tail-call instructions (50 in `hclang.wasm`) enabled via `-mtail-call` +
+`WAMR_BUILD_TAIL_CALL=1` (Phase 12.3d). WAMR's fast-interp dispatch shows
+sub-percent wall-time delta (~3 % in bench-check) vs conventional call+return.
 
-Currently pinned at `--opt-level=0` (Phase 12.3c). Lifting this
-saves ~7 % at `=2`; with Phase I2 in place that's ~70 ms of a 700 ms
-bench, still worth chasing eventually. Tracked under HCLANG_NATIVE_PLAN
-12.3c "Future" sub-bullets — not blocking the parity work.
+**Status**: Worth monitoring with P7.5 block-size sweep data, but not a priority.
+The gain is sub-percent; snapshot has eliminated the need for per-opcode
+micro-optimizations.
+
+**Decision**: Defer indefinitely unless a future regression or workload
+specifically shows tail-call sensitivity.
+
+### Phase I5 — wamrc bug bisection — [–] DEFERRED (ongoing)
+
+Lang-side AOT locked at `--opt-level=0` (Phase 12.3c) due to wamrc bug
+(SIGSEGV at =1, OOM at =2/3). Lifting would save ~7 % post-snapshot
+(~50 ms of 700 ms cold bench). Synth-side successfully uses `=3` (P7.2),
+so bug is lang-specific.
+
+**Status**: Tracked in HCLANG_NATIVE_PLAN §Phase 12.3 "Future". Not blocking
+the parity work; snapshot already closes the main gap. Re-test whenever
+WAMR updates.
 
 ---
 

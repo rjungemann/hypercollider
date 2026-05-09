@@ -1,8 +1,23 @@
 # Bonjour / mDNS Service Discovery Plan
 
 **Date**: May 7, 2026  
-**Status**: Planning  
+**Last Updated**: 2026-05-09  
+**Status**: Planned (not yet started) — awaiting WAMR perf parity completion  
 **Prerequisite**: mDNS advertisement working for OSCQuery (`hc_oscquery.js`)
+
+---
+
+## Status Summary (2026-05-09)
+
+This plan is comprehensive and ready for implementation. All phases (B1–B4) are marked
+**TODO** as of 2026-05-09. Current priority: **deferred** until WAMR performance parity
+is fully shipped and stable. This allows team focus on the core ~10× cold-start gap closure
+(via heap snapshots, P7 synth optimizations).
+
+**Recommended next steps**:
+1. Once Phase P7 (synth-side perf) ships, schedule Phase B1 (hcsynth advertisement).
+2. Phases B2–B4 are stretch goals; implement after B1 is validated on macOS/Linux.
+3. Phase B5 (native host mDNS, C-level) depends on HCLANG_NATIVE_PLAN completion.
 
 ---
 
@@ -528,14 +543,14 @@ hclang --no-zeroconf                          # disable browse; use localhost de
       false, send a synthetic OSC message to hcsynth to stop advertising. (Low
       priority — most users will just use the CLI flag.)
 
-### Phase B4 — Browser IDE (3–5 days, stretch goal)
+### Phase B4 — Browser IDE (3–5 days, stretch goal) (DEFERRED)
 
-- [ ] Add WebSocket relay in `bridge/server.js` that pipes `browseLan()` events
-      to connected browsers.
-- [ ] Extend `sc_ide.html` OSCQuery panel with a "Discovered Services" list.
-- [ ] Auto-populate the URL input when a `_oscjson._tcp` service is found.
-- [ ] **Acceptance**: open the browser IDE; start hcsynth; the service appears
-      in the panel within 3 seconds without any manual URL entry.
+- Add WebSocket relay in `bridge/server.js` that pipes `browseLan()` events
+  to connected browsers.
+- Extend `sc_ide.html` OSCQuery panel with a "Discovered Services" list.
+- Auto-populate the URL input when a `_oscjson._tcp` service is found.
+- **Acceptance**: open the browser IDE; start hcsynth; the service appears
+  in the panel within 3 seconds without any manual URL entry.
 
 ---
 

@@ -16,4 +16,5 @@ SynthDef(\bench_poly_voice, { |freq = 440, cutoff = 2000, rq = 0.3|
         rq:     0.2 + (i * 0.1),
     ]);
 };
+"BENCH_PATCH_poly_4: OK".postln;
 )

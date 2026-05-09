@@ -220,6 +220,19 @@ async function runSclangCli(opts) {
 
   logger.debug('runSclangCli started', { opts });
 
+  // Per-stage timing instrumentation (P1.2 diagnostic baseline).
+  // Cheap monotonic clock; printed to stderr under -v 1 (verbosity >= 1).
+  const tStart = Date.now();
+  let tPrev = tStart;
+  const stage = (name) => {
+    if (opts.verbosity < 1) { tPrev = Date.now(); return; }
+    const now = Date.now();
+    const dur = now - tPrev;
+    const since_start = now - tStart;
+    process.stderr.write(`[stage] ${name.padEnd(22)} ${dur.toString().padStart(5)} ms (cumulative ${since_start.toString().padStart(5)} ms)\n`);
+    tPrev = now;
+  };
+
   const hasExternalRoute = opts.scsynthHost && opts.scsynthPort;
 
   // When routing externally, output path is optional.
@@ -235,6 +248,7 @@ async function runSclangCli(opts) {
     printErr: () => {},
   });
   const tModuleEnd = Date.now();
+  stage("wasm_load");
 
   const midiBridge = createMidiBridge(sclang, logger);
   sclang.__hc_wasm_midi_bridge = midiBridge;
@@ -243,6 +257,7 @@ async function runSclangCli(opts) {
   const unixBridge = createUnixBridge(sclang, logger);
   sclang.__hc_wasm_unix_bridge = unixBridge;
   globalThis.__hc_wasm_unix_bridge = unixBridge;
+  stage("setup_bridges");
 
   let udpClient = null;
 
@@ -296,6 +311,7 @@ async function runSclangCli(opts) {
 
   const wasmJsPath = path.resolve(opts.sclangJs);
   const tBootStart = Date.now();
+  stage("pre_boot");
 
   // Try to restore a heap snapshot before registering callbacks — the restore
   // overwrites all linear memory (including any previously written callback
@@ -304,25 +320,32 @@ async function runSclangCli(opts) {
   if (!opts.noSnapshot) {
     snapshotRestored = tryRestoreSnapshot(sclang, wasmJsPath);
   }
+  if (snapshotRestored) {
+    stage("snapshot_restore");
+  }
 
   // Register/re-register callbacks on both paths:
   // - fast path: re-register overwrites stale function-table indices from snapshot
   // - slow path: initial registration before compileLibrary runs
   sclang._hc_wasm_eval_set_post_callback(postCb);
   sclang._hc_wasm_eval_set_error_callback(errCb);
+  stage("register_callbacks");
 
   const initRc = sclang._hc_wasm_eval_boot_sequence();
   const tBootEnd = Date.now();
+  stage("boot_sequence");
   if (initRc !== 0) throw new Error(`hc_wasm_eval_boot_sequence failed (${initRc})`);
 
   // Save snapshot after first successful full boot so subsequent runs are fast.
   if (!snapshotRestored && !opts.noSnapshot) {
     saveSnapshot(sclang, wasmJsPath);
+    stage("snapshot_save");
   }
 
   // Save build-time sidecar snapshot when --snapshot-out is provided (cmake POST_BUILD).
   if (!snapshotRestored && opts.snapshotOut) {
     saveBundledSnapshot(sclang, wasmJsPath, opts.snapshotOut);
+    stage("bundled_snapshot_save");
   }
 
   if (opts.printTiming) {
@@ -341,6 +364,7 @@ async function runSclangCli(opts) {
 
   const scriptPath = path.resolve(opts.script);
   const script = fs.readFileSync(scriptPath, 'utf8');
+  stage("script_load");
 
   const serverState = 'Server.default.statusWatcher.serverRunning = true; Server.default.statusWatcher.notified = true;';
   {
@@ -364,6 +388,7 @@ async function runSclangCli(opts) {
     }
     logger.debug(`Set thisProcess.argv = ${argList}`);
   }
+  stage("setup_server");
 
   {
     const p = allocCString(sclang, script);
@@ -375,6 +400,7 @@ async function runSclangCli(opts) {
       sclang._free(p);
     }
     const tEvalEnd = Date.now();
+    stage("eval_execute");
     if (opts.printTiming) {
       process.stderr.write(`hclang_eval_ms: ${tEvalEnd - tEvalStart}\n`);
     }
@@ -439,6 +465,12 @@ async function runSclangCli(opts) {
   fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2));
 
   logger.info(`✓ Extracted ${packets.length} OSC packets`);
+
+  const tEnd = Date.now();
+  const totalWall = tEnd - tStart;
+  if (opts.verbosity >= 1) {
+    process.stderr.write(`[summary] total_wall ${totalWall} ms\n`);
+  }
 
   return {
     outputPath,
