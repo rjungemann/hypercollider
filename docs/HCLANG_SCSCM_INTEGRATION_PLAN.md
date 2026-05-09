@@ -167,7 +167,7 @@ This mirrors how Clojure REPLs let you switch between Clojure and ClojureScript.
 
 This is the hard variant. Three real options:
 
-#### Option 4a — **Subprocess `lhc` at load time** (recommended for v1)
+#### Option 4a — **Subprocess `lhc` at load time** (fallback / contingency)
 
 Detect `.scscm`, spawn `node cli/lhc.js -i <file>` (or `lhc_native` if/when it exists), capture stdout, feed the resulting sclang to hclang.wasm.
 
@@ -178,7 +178,7 @@ Detect `.scscm`, spawn `node cli/lhc.js -i <file>` (or `lhc_native` if/when it e
 
 Mitigation: ship a `lhc_native` (a thin C++ binary that bundles the scscm compiler as a wasm module via WAMR — described in 4b). The native binary calls `lhc_native` instead of Node.
 
-#### Option 4b — **Compiler-as-WASM-module loaded into the same WAMR runtime** (recommended for v2)
+#### Option 4b — **Compiler-as-WASM-module loaded into the same WAMR runtime** (recommended)
 
 Compile the scscm compiler (lhc_lexer + lhc_parser + lhc_codegen) to a WASM module via QuickJS-WASM or a similar JS-on-WASM runtime. Load it alongside hclang.wasm in the same WAMR host process. When `.scscm` is detected, call into the compiler module to translate to sclang in-memory, then feed the result to hclang.wasm as usual.
 
@@ -188,7 +188,7 @@ Compile the scscm compiler (lhc_lexer + lhc_parser + lhc_codegen) to a WASM modu
 - ❌ Significant infrastructure work: build pipeline for the compiler-WASM bundle, second WAMR module instance, IPC between modules
 - ❌ Adds 1–3 MB to the binary (QuickJS + scscm compiler bytecode)
 
-This is the *right* long-term answer. It mirrors how the existing WAMR host already loads sclang-the-language.
+This is the preferred answer and the one to ship for native-host `.scscm` support. It mirrors how the existing WAMR host already loads sclang-the-language.
 
 #### Option 4c — **Port the scscm compiler to C++**
 
@@ -202,17 +202,17 @@ Reject. The compiler is still evolving (see [`SCSCM_LANGUAGE_FEATURES_FUTURE.md`
 
 **Plan:**
 
-- **v1**: ship Option 4a. Document the Node.js dependency for scscm support; emit a clear error if Node isn't on `$PATH` and the user opens a `.scscm`.
-- **v2**: replace 4a with 4b once Variants 1–3 are in production. Track as a future phase.
+- **v1**: ship Option 4b. Keep native `.scscm` execution self-contained (no Node dependency) by loading the compiler as a sibling WASM module in the same WAMR host process.
+- **Contingency only**: if a critical blocker appears late, temporarily gate 4a behind an explicit build/runtime flag and keep it out of the default user path.
 
-**Effort:** 4a small (~50 lines C++, mostly process spawning). 4b large (multi-week, new build pipeline).
+**Effort:** 4b large (multi-week, new build pipeline + second module lifecycle).
 
-**Risk:** 4a low (subprocess pattern is well understood). 4b medium-high (new tooling).
+**Risk:** 4b medium-high (new tooling/integration surface).
 
 **Tests:**
-- `hclang_native --script foo.scscm` works when Node is on PATH (v1)
-- Error message is helpful when Node is missing
-- Performance: scscm load time < 200 ms for typical files (subprocess + compile)
+- `hclang_native --script foo.scscm` works without Node installed
+- Compiled scscm output matches Variant 1 output for shared fixture corpus
+- Performance: compile+eval latency remains acceptable for interactive use on typical files
 
 ---
 
@@ -265,24 +265,25 @@ Land Variant **5** after H1 (depends on the bridge protocol from H1).
 
 **Acceptance:** A user can open a `.scscm` file in `sc_ide.html`, click Run, and hear it.
 
-### Phase H3 — Native host v1 (subprocess) (3–5 days)
+### Phase H3 — Native host (compiler-as-WASM) (multi-week)
 
-Land Variant **4a**.
+Land Variant **4b**.
 
 - [ ] Detect `.scscm` extension in `native/hclang_host/main.cpp`
-- [ ] Spawn `lhc.js` (or system-installed `lhc`) via `popen`-style API
-- [ ] Capture stdout, feed to existing eval path
-- [ ] Helpful error if Node not found
+- [ ] Build and package the scscm compiler as a WASM module for WAMR
+- [ ] Instantiate/manage compiler module alongside hclang.wasm
+- [ ] Compile `.scscm` in-memory and feed generated sclang to existing eval path
+- [ ] Add fixture-based parity tests against CLI Variant 1
 
-**Acceptance:** `hclang_native --script foo.scscm` works when Node is installed; clear error when not.
+**Acceptance:** `hclang_native --script foo.scscm` works with no Node dependency and produces parity output with JS variants.
 
 ### Phase H4 — Source maps (deferred — track separately)
 
 D3. Significant work; useful but not blocking. File a separate plan.
 
-### Phase H5 — Native host v2 (compiler-as-WASM) (multi-week, deferred)
+### Phase H5 — Native contingency cleanup (deferred)
 
-Variant **4b**. Reconsider once H1–H3 are stable and we have data on whether the Node dependency is friction for native-binary users.
+If a temporary 4a fallback was introduced during H3, remove it once 4b is stable and keep 4b as the only documented default path.
 
 ---
 
@@ -290,7 +291,7 @@ Variant **4b**. Reconsider once H1–H3 are stable and we have data on whether t
 
 1. **Should `lhc` (the standalone compiler CLI) survive H1?** Yes — it's still useful for emitting `.sc` for inspection, source-control, build pipelines. Don't deprecate.
 2. **What about offline mode (`hclang --script foo.scscm --output commands.json`)?** Works the same way: compile to sclang in memory, run as before, emit OSC commands. No special handling needed.
-3. **Bundle vs. external compiler?** For Variants 1–3, *bundle* (require directly). For Variant 5, *bundle* (browser ESM). For Variant 4, *external subprocess* in v1, *embedded WASM* in v2.
+3. **Bundle vs. external compiler?** For Variants 1–3, *bundle* (require directly). For Variant 5, *bundle* (browser ESM). For Variant 4, *embedded WASM* (4b) is the default; external subprocess (4a) is contingency-only.
 4. **Source-map format?** Not decided. Common options: V3 source maps (overkill — these are usually for JS), inline `// scscm:line=N` comments (simple, what we'd do at minimum). Decide as part of D3.
 5. **Test fixtures for cross-variant parity?** Build a small suite of `.scscm` programs and run them through every variant (1–5); assert the OSC output is identical. Add to CI.
 
@@ -303,7 +304,7 @@ Variant **4b**. Reconsider once H1–H3 are stable and we have data on whether t
 | 1. CLI scripting | S (~30 LOC) | Low | None |
 | 2. CLI REPL | M (~80 LOC) | Medium | Multi-line input edge cases |
 | 3. Bridge proc | S (~15 LOC) | Low | Variant 1 |
-| 4a. Native (subprocess) | M (~50 LOC C++) | Low | Node on PATH at runtime |
+| 4a. Native (subprocess) | M (~50 LOC C++) | Low | Contingency only |
 | 4b. Native (WASM bundle) | XL (multi-week) | Medium | New build pipeline |
 | 5. Browser IDE | L (1–2 weeks UI) | Medium | esbuild bundle, editor integration |
 
@@ -312,5 +313,5 @@ Variant **4b**. Reconsider once H1–H3 are stable and we have data on whether t
 ## Relationship to other plans
 
 - **[SCSCM_DOCS_PLAN.md](SCSCM_DOCS_PLAN.md)** — docs are now shipped; this plan is the natural next step (let users actually run the code in the docs without a separate compile step).
-- **[HCLANG_NATIVE_PLAN.md](HCLANG_NATIVE_PLAN.md)** — Phase H3 (Variant 4a) is a small addition to native host work; H5 (Variant 4b) probably belongs there as a sub-phase rather than here.
+- **[HCLANG_NATIVE_PLAN.md](HCLANG_NATIVE_PLAN.md)** — Phase H3 (Variant 4b) is now the primary native-host integration phase; detailed execution can live as a sub-phase there.
 - **[scscm/SCSCM_LANGUAGE_FEATURES_FUTURE.md](scscm/SCSCM_LANGUAGE_FEATURES_FUTURE.md)** — language features (destructuring, `match`, etc.) ship through the same compiler module; integration plan is unaffected.

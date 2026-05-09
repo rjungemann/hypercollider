@@ -1821,47 +1821,47 @@ Every document links to others at contextually relevant points:
 
 ### Phase 1: Foundation (1–2 weeks)
 
-- [ ] Write SCSCM_LANGUAGE_REFERENCE.md (formal, complete)
-- [ ] Write SCSCM_CHEAT_SHEET.md (derive from reference)
-- [ ] Create quick_start_1.scscm and quick_start_2.scscm (verified to run)
+- [x] Write SCSCM_LANGUAGE_REFERENCE.md (formal, complete)
+- [x] Write SCSCM_CHEAT_SHEET.md (derive from reference)
+- [x] Create quick_start_1.scscm and quick_start_2.scscm (verified to run)
 
 **Acceptance**: Language reference is authoritative and linked; cheat sheet is 1-pager; quick start examples run without errors.
 
 ### Phase 2: Quick Start & Basics (1 week)
 
-- [ ] Write SCSCM_QUICK_START.md (using examples from Phase 1)
-- [ ] Verify all code examples run end-to-end
-- [ ] Add navigation links from Quick Start to other docs
+- [x] Write SCSCM_QUICK_START.md (using examples from Phase 1)
+- [x] Verify all code examples run end-to-end
+- [x] Add navigation links from Quick Start to other docs
 
 **Acceptance**: A new user can follow QUICK_START and run their first patch in 5 minutes without external help.
 
 ### Phase 3: Live Coding Tutorial (2 weeks)
 
-- [ ] Design the ambient patch progression (4 steps)
-- [ ] Write SCSCM_LIVE_CODING_TUTORIAL.md
-- [ ] Create ambient_step_*.scscm examples
-- [ ] Create exercises and solution sketches
-- [ ] Internal review: can a musician follow the tutorial?
+- [x] Design the ambient patch progression (4 steps)
+- [x] Write SCSCM_LIVE_CODING_TUTORIAL.md
+- [x] Create ambient_step_*.scscm examples
+- [x] Create exercises and solution sketches
+- [x] Internal review: can a musician follow the tutorial?
 
 **Acceptance**: Reader can follow tutorial in REPL; exercises have solution sketches; all examples run.
 
 ### Phase 4: Pattern Techniques (2–3 weeks)
 
-- [ ] Identify top 10–15 pattern-design techniques
-- [ ] Write SCSCM_PATTERN_TECHNIQUES.md
-- [ ] Create example for each technique
-- [ ] Cross-link to Language Reference
-- [ ] Organize techniques by category (rhythm, pitch, texture, etc.)
+- [x] Identify top 10–15 pattern-design techniques
+- [x] Write SCSCM_PATTERN_TECHNIQUES.md
+- [x] Create example for each technique
+- [x] Cross-link to Language Reference
+- [x] Organize techniques by category (rhythm, pitch, texture, etc.)
 
 **Acceptance**: Each technique has a clear purpose, runnable example, and cross-links; covers common use cases.
 
 ### Phase 5: Polish & Integration (1 week)
 
-- [ ] Audit all cross-links (no broken references)
-- [ ] Ensure examples use consistent style (naming, indentation)
-- [ ] Add to main README as entry point
-- [ ] Consider: PDF/HTML export of full suite
-- [ ] Update CI to verify all code examples compile/run
+- [x] Audit all cross-links (no broken references)
+- [x] Ensure examples use consistent style (naming, indentation)
+- [x] Add to main README as entry point
+- [x] Consider: PDF/HTML export of full suite
+- [x] Update CI to verify all code examples compile/run
 
 **Acceptance**: Documentation is discoverable, internally consistent, and kept in sync with language changes.
 
