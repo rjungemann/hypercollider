@@ -16,6 +16,38 @@ For the Node.js CLI and WAMR CLI implementations see `docs/QUARKS_CLI_PLAN.md`.
 
 ---
 
+## Status & rollout
+
+Coarse-grained checklist of the work below. Each item links to a step where the per-file
+checkboxes live. Some pieces (`Quarks.supported`, `_HcWasmQuarksAvailable`, the
+`String#include` guard) are shared with the CLI plan — land them once via
+`docs/QUARKS_CLI_PLAN.md`'s "Shared follow-up" and reuse here.
+
+### Critical path (lands first)
+
+- [ ] **Browser unix bridge** — `cli/hc_unix_browser.js` covering every `git` subcommand `Git.sc` issues (Step C1).
+- [ ] **Atomics bridge** — `Pipe.callSync` is synchronous; isomorphic-git is async. Pick C2a (SharedArrayBuffer + Atomics, requires COOP/COEP) or commit to C2b (async refactor) before C1 ships, because the bridge shape depends on it.
+- [ ] **CORS proxy contract** — `window.__hclang_git_proxy` set by host page; `corsProxy()` throws otherwise (Step C4).
+
+### Rollout phases
+
+- [ ] **C1** Replace the unix bridge with an isomorphic-git dispatcher
+- [ ] **C2** Atomics bridge for synchronous dispatch (C2a recommended; C2b future)
+- [ ] **C3** IDBFS mount for persistent quark storage (decide single-FS strategy)
+- [ ] **C4** CORS proxy configuration + `__hclang_on_error` UI hook
+- [ ] **C5** Browser bundle build configuration (aliases, exclusions)
+- [ ] **C6** UI surfacing (`Quarks.supported`, banner, menu greying) — shared with CLI plan
+
+### Test matrix (browser-specific; see also CLI plan TS-1…TS-4)
+
+- [ ] **TC-1** `dispatchGit({argv: ['git','clone',url,dir]})` clones a public repo through the proxy into LightningFS
+- [ ] **TC-2** Cloned quark survives a page reload (IDBFS round-trip)
+- [ ] **TC-3** Atomics bridge returns synchronously to `Pipe.callSync` from the wasm side
+- [ ] **TC-4** `Quarks.supported` returns `false` when proxy unset; `true` when set
+- [ ] **TC-5** `String#include` shows a banner when proxy unset (no crash)
+
+---
+
 ## Track C — Browser (hosted web app)
 
 ### Background
@@ -220,6 +252,19 @@ export function createBrowserUnixBridge(moduleInstance) {
 }
 ```
 
+**Tasks:**
+
+- [ ] Add `isomorphic-git` and `@isomorphic-git/lightning-fs` to the browser bundle's `package.json` (or `cli/package.json`, wherever the browser entry pulls deps from).
+- [ ] Create `cli/hc_unix_browser.js` exporting `createBrowserUnixBridge(moduleInstance)` with the same surface as `cli/hc_unix.js`'s `createUnixBridge` (methods at `cli/hc_unix.js:96-247`: `errno`, `system`, `startCommand`, `startArgvCommand`, `runCommandCapture`, `runArgvCommandCapture`, `pidRunning`, `getPid`).
+- [ ] Implement `parseGitArgv(cmd)` — strip leading `cd <dir> && ` prefix that `Git.sc` prepends; split on whitespace.
+- [ ] Implement `dispatchGit({dir, argv})` switch covering: `clone`, `pull`, `fetch`, `checkout`, `rev-parse`, `--no-pager log`, `for-each-ref`, `remote`, `symbolic-ref`. These are every subcommand `src/class_library/Common/Quarks/Git.sc` issues via `Pipe.callSync` (lines 133, 148).
+- [ ] Implement `corsProxy()` — read `window.__hclang_git_proxy`, throw with a clear message if absent, also call `window.__hclang_on_error(msg)` if registered (so the host page can surface the error).
+- [ ] Implement `runCommandCapture(command)` — recognise `git`-prefixed commands and route through `dispatchGit` via `atomicsBridgeSync` (Step C2). Non-git commands return `{ ok: false, stdout: '', exitCode: 127 }`.
+- [ ] Implement `system(command)` — fire-and-forget; if `git`-prefixed, dispatch and `.catch(console.error)`; return 0 optimistically.
+- [ ] Wire the browser bundle's bootstrap to call `createBrowserUnixBridge(module)` instead of `createUnixBridge` (alias-driven via Step C5).
+
+**Acceptance:** TC-1 passes — a clone of a small public repo via the configured proxy succeeds and the resulting tree is visible in LightningFS.
+
 ### Step C2 — Atomics bridge for synchronous dispatch
 
 `Pipe.callSync` in SC is synchronous: `wasm_runtime_bridge.cpp` calls
@@ -281,6 +326,21 @@ Restructure `Pipe.callSync` in SC to use a non-blocking callback pattern, exposi
 `_AsyncPipeOpen` primitive instead. Requires changes to `Git.sc` to use async callbacks.
 Higher effort but removes the COOP/COEP header requirement.
 
+**Tasks (Option C2a — recommended for v1):**
+
+- [ ] Create `cli/atomics_git_worker.js` (or whatever the browser bundle's worker dir is). Worker accepts `{id, op, sab, resultSab}` messages, runs `dispatchGit(op)`, encodes the JSON result into `resultSab`, then `Atomics.store` + `Atomics.notify` on `sab[0]`.
+- [ ] Implement `atomicsBridgeSync(asyncFn)` on the main-thread side — allocate a 4-byte `SharedArrayBuffer` for the signal and a 64 KB `SharedArrayBuffer` for the result; post the operation; `Atomics.wait` until signalled; decode and return.
+- [ ] Stand up the worker once at module init — keep it alive for the page lifetime; reuse for every git op.
+- [ ] Document the COOP/COEP header requirement in `docs/QUARKS_BROWSER_PLAN.md` and any host-page deployment guide. Without `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`, `Atomics.wait` throws on the main thread.
+- [ ] Detect missing `SharedArrayBuffer` / `Atomics.wait` on page load; if absent, set `__hclang_quarks_disabled_reason = 'no-cross-origin-isolation'` and have `hclang_quarks_available()` return `false` (folds into Step C6's UI surfacing).
+- [ ] Result-buffer overflow: if a git op returns more than 64 KB JSON (e.g. very large `for-each-ref` output), grow the result SAB on retry rather than truncating.
+
+**Tasks (Option C2b — deferred):**
+
+- [ ] File a separate plan for an async `_AsyncPipeOpen` primitive + a `Git.sc` rewrite that awaits results via callbacks. Out of scope for v1.
+
+**Acceptance:** TC-3 passes — a `Pipe.callSync("git ...", "r")` from the wasm side returns the captured stdout synchronously without leaking the worker / SAB plumbing into SC.
+
 ### Step C3 — IDBFS mount for persistent quark storage
 
 Mount Emscripten's IndexedDB filesystem at the quarks path so cloned quarks survive
@@ -319,6 +379,18 @@ via isomorphic-git, copy the resulting directory tree into the IDBFS mount and c
 `FS.syncfs(false)` to persist it. Alternatively, wire isomorphic-git to use a custom FS
 adapter that writes directly into Emscripten's IDBFS via `module.FS.*` calls — this keeps
 a single source of truth.
+
+**Tasks:**
+
+- [ ] **Decide single-FS strategy first** — pick (a) "two IndexedDB stores, copy after every clone, `FS.syncfs(false)`" or (b) "isomorphic-git uses a custom FS adapter writing through `module.FS`". (b) is more work upfront but eliminates an entire class of drift bugs; (a) ships sooner. Document the choice inline.
+- [ ] Implement `mountQuarksDirBrowser(module)` — `mkdirTree(guestParent)`, `mkdir(guestLeaf)`, `module.FS.mount(IDBFS, {}, guestLeaf)`, then `FS.syncfs(true)` (populate from IndexedDB).
+- [ ] Wire it into the browser bundle bootstrap — call after `instantiateEmscriptenModule(...)` and before `_hc_wasm_eval_boot_sequence()` (mirrors A2's location at `cli/hclang.js:344`, but for the browser entry point).
+- [ ] Implement `flushQuarksDir(module)` calling `FS.syncfs(false)`. Wire it into the post-`Quarks.install` codepath — either via a JS callback hook from a new `_HcWasmFlushQuarks` primitive that `Quarks.install` calls on completion, or by hooking the bridge's `dispatchGit` `clone` case to flush after success.
+- [ ] If strategy (a) is chosen: add a `copyTree(srcLfs, dstFsModule, srcDir, dstDir)` helper that walks LightningFS and writes into Emscripten FS via `module.FS.writeFile`.
+- [ ] If strategy (b) is chosen: implement the custom FS adapter — isomorphic-git accepts an `fs` option with `promises.readFile`, `promises.writeFile`, etc. Adapter delegates to `module.FS.*`.
+- [ ] No automatic `flush` on page unload exists — document that the user (or the host page) must accept that an uncommitted IDBFS state can be lost on tab close.
+
+**Acceptance:** TC-2 passes — a quark cloned in one page-load is present in the next page-load without re-cloning.
 
 ### Step C4 — CORS proxy configuration (required for quark support)
 
@@ -360,6 +432,16 @@ If `window.__hclang_git_proxy` is absent at the time `Quarks.install` is called,
 page should register that callback and show a visible error banner or dialog rather than
 silently dropping the operation.
 
+**Tasks:**
+
+- [ ] Document the `window.__hclang_git_proxy` contract in user-facing docs (browser deployment guide, README's "Browser bundle" section if one exists).
+- [ ] Document the optional `window.__hclang_on_error(msg)` hook with a working example showing a banner div toggling visible.
+- [ ] Provide a one-line dev-mode recipe: `npx isomorphic-git create-proxy-server --port 9999` plus instructions for setting `window.__hclang_git_proxy = 'http://localhost:9999'`.
+- [ ] Provide a deployment recipe linking to `@isomorphic-git/cors-proxy` for production.
+- [ ] Add a self-check in `corsProxy()` that distinguishes "proxy unset" vs "proxy unreachable" — first throws the configuration message; the second surfaces the underlying network error verbatim so the user can debug their proxy.
+
+**Acceptance:** with no proxy set, attempting `Quarks.install("Foo")` produces (a) a thrown `Error` containing the documented message, (b) a `console.error` log, and (c) a call to `__hclang_on_error` if registered. Nothing crashes.
+
 ### Step C5 — Build configuration
 
 The browser bundle must not include Node.js modules. Webpack/esbuild/Rollup aliases:
@@ -377,6 +459,19 @@ The browser bundle must not include Node.js modules. Webpack/esbuild/Rollup alia
 
 IDBFS is included automatically with Emscripten's standard FS — no extra `-l` flag needed,
 unlike NODEFS.
+
+**Tasks:**
+
+- [ ] Pick the bundler — vite / esbuild / rollup / webpack. None exists at the project root yet, so choose based on what the rest of the browser bundle does (or stand one up). Document the choice in this section once picked.
+- [ ] Add aliases:
+    - `cli/hc_unix.js` → `cli/hc_unix_browser.js`
+    - `node:child_process` → empty stub
+    - `node:os` / `node:fs` / `node:path` → empty stubs
+- [ ] Verify the produced bundle does **not** contain the strings `child_process`, `node:fs`, etc. (a CI grep step is fine).
+- [ ] Verify IDBFS is reachable as `module.IDBFS` after `instantiateEmscriptenModule` — Emscripten's standard FS includes it; no link flag should be needed.
+- [ ] Add a build-time toggle (env var or bundler define) that ships the browser bundle **without** the isomorphic-git/lightning-fs deps for embedders that don't want quark support. With the toggle off, `hclang_quarks_available()` always returns `false` and Steps C1/C2/C3 are tree-shaken out.
+
+**Acceptance:** the production browser bundle is byte-identical when built with quarks-off vs. quarks-on minus the iso-git/lightning-fs chunks; no Node API references reach the browser.
 
 ### `String#include` WASM guard
 
@@ -407,6 +502,11 @@ include {
 ```
 
 The `Quarks.supported` method is added as part of Step C6 below.
+
+**Tasks:**
+
+- [ ] This guard is the same patch landed by `docs/QUARKS_CLI_PLAN.md` "Shared follow-up". Don't duplicate — link to that section in the commit message and confirm both plans reference the single source of truth.
+- [ ] Verify on the browser path that the guard prints the documented banner and returns `^this` without invoking `Quarks.install`, when `Quarks.supported` is `false`.
 
 ### Step C6 — Surface quark availability in the browser UI
 
@@ -477,9 +577,102 @@ network access (Install, Update, Refresh directory) should be:
 Entries that do not require network access (list installed quarks, uninstall) remain
 enabled regardless.
 
+**Tasks (`Quarks.supported` class method):**
+
+- [ ] Add `*supported` to `src/class_library/Common/Quarks/Quarks.sc`. Branch on `thisProcess.platform.name == \wasm`; on wasm, dispatch to `_HcWasmQuarksAvailable`; otherwise return `true`.
+- [ ] Land once — same patch is consumed by `docs/QUARKS_CLI_PLAN.md`'s "Shared follow-up" and by the `String#include` guard.
+
+**Tasks (`_HcWasmQuarksAvailable` primitive):**
+
+- [ ] Declare in `engine/HC_Wasm_Eval.h` and implement in `engine/HC_Wasm_Eval.cpp`.
+- [ ] Browser path: call out to `window.hclang_quarks_available()` (export the JS helper from the browser bundle bootstrap). Return `1` iff `window.__hclang_git_proxy` is non-empty AND cross-origin isolation is active (see Step C2 detection).
+- [ ] WAMR path: return `1` iff `--quarks-dir` was registered at startup. Set a static flag from `native/hclang_host/main.cpp` at the pre-open call site (Step B4) and read it from the primitive.
+- [ ] Register in `wasm_runtime_bridge.cpp::initUnixPrimitives()` next to the new pipe primitives (line 879+).
+
+**Tasks (UI banner + menu greying):**
+
+- [ ] After `_hc_wasm_eval_boot_sequence()` resolves in the browser bootstrap, call `window.hclang_quarks_available()` and, if false, render a dismissible banner with: a clear message, the underlying reason (no proxy / no isolation / etc.), and a link to the docs.
+- [ ] In any Quarks-related menu / command-palette wiring in the browser UI, grey out network-requiring entries (Install, Update, Refresh) when unavailable; tooltip them with `Requires a CORS proxy — set window.__hclang_git_proxy`.
+- [ ] Keep network-free entries (List, Uninstall) enabled regardless.
+- [ ] Re-render the banner if the user calls `Quarks.install` while unsupported (i.e. don't suppress repeats forever after first dismiss).
+
+**Acceptance:** TC-4 passes (proxy unset → `false`; proxy set → `true`); TC-5 passes (banner shown without crash when calling `String#include` unsupported).
+
 ---
 
-### Known limitations (browser track)
+## Testing (browser track)
+
+CLI tests TS-1…TS-4 (`docs/QUARKS_CLI_PLAN.md`) cover the engine-level shared pieces.
+The five tests below cover the browser-only surface: the iso-git dispatcher, the
+Atomics bridge, IDBFS persistence, and the `Quarks.supported` UI hooks. They run in a
+headless browser harness (Playwright / Puppeteer); add a `just test-quarks-browser`
+recipe and wire it into CI on `ubuntu-latest`.
+
+#### TC-1 — `dispatchGit` clones into LightningFS through the proxy
+
+**Setup:** start the dev cors-proxy (`npx isomorphic-git create-proxy-server --port 9999`)
+and serve a small public test repo (or a local-only fixture proxied through it). Set
+`window.__hclang_git_proxy = 'http://localhost:9999'` before module load.
+
+**Steps:** call `dispatchGit({dir: '/q/TestQuark', argv: ['git', 'clone', '<url>', '/q/TestQuark']})`
+directly from the harness. Assert the resulting LightningFS contains `quark.yaml` (or
+whatever the fixture has).
+
+**What it covers:** Step C1 dispatcher, Step C4 proxy configuration, isomorphic-git +
+LightningFS plumbing.
+
+#### TC-2 — Cloned quark survives a page reload (IDBFS round-trip)
+
+**Setup:** complete TC-1, then reload the page.
+
+**Assert:** after reload + `Quarks.supported` true, `Quarks.isInstalled("TestQuark")`
+returns `true` without re-cloning.
+
+**What it covers:** Step C3 IDBFS mount, the LightningFS↔IDBFS sync strategy chosen
+in C3, `FS.syncfs(false)` flush after install.
+
+#### TC-3 — Atomics bridge returns synchronously to `Pipe.callSync`
+
+**Setup:** page served with COOP/COEP headers; bridge initialised; proxy configured.
+
+**Steps:** evaluate SC code that calls `Pipe.callSync("git rev-parse HEAD", "r")` against
+a previously cloned quark. Assert the returned array contains a 40-char SHA without
+the SC scheduler having to drain microtasks.
+
+**What it covers:** Step C2a SAB+Atomics machinery; the synchronous return contract
+that `Pipe.callSync` relies on.
+
+#### TC-4 — `Quarks.supported` matrix
+
+**Steps:** with proxy unset: assert `Quarks.supported.postln` prints `false`. Set
+`window.__hclang_git_proxy` to a non-empty URL; reboot or call `_HcWasmQuarksAvailable`
+again; assert `true`.
+
+**What it covers:** Step C6 `*supported` class method + `_HcWasmQuarksAvailable`
+primitive; the `window.hclang_quarks_available` JS helper.
+
+#### TC-5 — `String#include` shows banner without crashing when unsupported
+
+**Steps:** with proxy unset, evaluate `"NonexistentQuark".include`. Assert (a) the
+post window shows the documented "Quarks are not supported" message, (b) the
+`__hclang_on_error` callback was invoked, (c) the banner DOM element is visible, (d)
+the SC interpreter is still alive afterwards.
+
+**What it covers:** the `String#include` guard, the `corsProxy()` helper's `__hclang_on_error`
+hook, the banner UI from C6, and graceful failure overall.
+
+---
+
+### Running the tests
+
+Add a `just test-quarks-browser` recipe that builds the browser bundle, starts the dev
+cors-proxy, launches a headless browser via Playwright/Puppeteer, and runs the five
+tests above. CI runs the recipe on `ubuntu-latest` (Chromium); skip on `macos-14`
+unless WebKit-specific issues appear.
+
+---
+
+## Known limitations (browser track)
 
 - **CORS proxy required** for any network quark install. Fully self-contained static
   deployment without a proxy is not possible for quarks that live on GitHub. Quark
