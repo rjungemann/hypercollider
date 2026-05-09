@@ -459,6 +459,19 @@ bundle-hclang: cli-setup
 bundle-hcsynth: cli-setup
     node {{CLI_DIR}}/hc_bundle.js --hcsynth --out-dir {{DIST_DIR}}
 
+# Bundle the scscm compiler (lhc.js) as a single self-contained Node.js
+# script. Output: dist/lhc.js — runs with `node lhc.js [args...]` and has
+# no external dependencies beyond Node.js itself.
+bundle-lhc:
+    node {{CLI_DIR}}/lhc_bundle.js --out-dir {{DIST_DIR}}
+    @echo "Standalone scscm compiler written to {{DIST_DIR}}/lhc.js"
+
+# Smoke-test the bundled lhc: --version + compile a sample
+bundle-test-lhc: bundle-lhc
+    node {{DIST_DIR}}/lhc.js --version
+    node {{DIST_DIR}}/lhc.js -i {{CLI_DIR}}/examples/quick_start_1.scscm > /tmp/lhc_bundle_smoke.sc
+    @echo "✓ lhc bundle smoke test passed (compiled to /tmp/lhc_bundle_smoke.sc)"
+
 # Smoke-test the bundled hclang: evaluate a trivial expression
 bundle-test-hclang: bundle-hclang
     node {{DIST_DIR}}/hclang_standalone.js --version

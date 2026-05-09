@@ -33,6 +33,28 @@ jobs:
         run: node tests/test_sc_format.js
         working-directory: cli
 
+      # ── scscm compiler standalone bundle ──────────────────────────────────
+      # Pure-JS bundle (no WASM build required). Generated in this fast job so
+      # bundle breakage surfaces on every PR.
+
+      - name: Build standalone lhc.js bundle
+        run: node cli/lhc_bundle.js --out-dir dist
+
+      - name: Smoke-test lhc.js bundle
+        run: |
+          node dist/lhc.js --version
+          node dist/lhc.js -i cli/examples/quick_start_1.scscm > /tmp/qs1.sc
+          test -s /tmp/qs1.sc
+          # Output must match the source-tree compiler byte-for-byte
+          diff <(node cli/lhc.js -i cli/examples/quick_start_1.scscm) /tmp/qs1.sc
+
+      - name: Upload standalone lhc.js bundle (PR / push artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: lhc-standalone
+          path: dist/lhc.js
+          if-no-files-found: error
+
   # ── WASM build + full CLI tests + standalone bundle generation ───────────────
   build-and-bundle:
     name: Build WASM, test, and bundle
@@ -136,4 +158,20 @@ jobs:
         with:
           name: hcsynth-nodejs-${{ github.ref_name }}
           path: release/hcsynth-nodejs/
+          if-no-files-found: error
+
+      # ── scscm compiler release artifact ───────────────────────────────────
+      # Pure-JS, no WASM. Built fresh here so the artifact is reproducible
+      # within the same workflow run (don't rely on cross-job artifact reuse).
+
+      - name: Build standalone lhc.js bundle (release)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node cli/lhc_bundle.js --out-dir release/lhc-standalone
+
+      - name: Upload standalone lhc.js — tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: lhc-standalone-${{ github.ref_name }}
+          path: release/lhc-standalone/lhc.js
           if-no-files-found: error

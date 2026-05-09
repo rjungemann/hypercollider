@@ -54,6 +54,13 @@ alias hc-bench='just bench'
 alias hc-bench-wamr-full='just bench-wamr-full'
 alias hc-bench-wamr-aot='just bench-wamr-aot'
 
+# ── Toolchain wrapper functions ───────────────────────────────────────────
+# Source hc_tools.rc to get hclang-{wasm,wamr-full,wamr-aot} and
+# hcsynth-{wasm,wamr-full,wamr-aot} convenience functions.
+if [[ -f "$HYPERCOLLIDER_DIR/hc_tools.rc" ]]; then
+    source "$HYPERCOLLIDER_DIR/hc_tools.rc"
+fi
+
 echo ""
 echo "HyperCollider environment ready. Available commands:"
 echo "  just build              Build WASM (JS + hclang + hcsynth)"
@@ -62,5 +69,8 @@ echo "  just build-wamr-aot     Build WASM + WASI + WAMR with AOT (requires wamr
 echo "  just bench              Run full benchmark suite"
 echo "  just bench-wamr-full    Benchmark WAMR-hosted binaries"
 echo "  just bench-wamr-aot     Benchmark WAMR AOT-compiled binaries"
+echo ""
+echo "  hclang-{wasm,wamr-full,wamr-aot}   Run hclang under the given toolchain"
+echo "  hcsynth-{wasm,wamr-full,wamr-aot}  Run hcsynth under the given toolchain"
 echo ""
 echo "Type 'just --list' to see all available recipes."

@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# hc_tools.rc — HyperCollider toolchain wrapper functions
+# Provides hclang-<kind> and hcsynth-<kind> for kind in: wasm, wamr-full, wamr-aot.
+#
+# Source this file in bash or zsh:
+#   source ./hc_tools.rc
+#
+# Example usage:
+#   # WASM (Node.js / Emscripten):
+#   hclang-wasm  --script foo.scd --output cmds.json
+#   hcsynth-wasm --commands cmds.json --output out.wav --duration 5
+#   hcsynth-wasm --server --udp-port 57110
+#
+#   # WAMR-full (WASI .wasm interpreted by the native WAMR host):
+#   hcsynth-wamr-full --output out.wav --duration 5 --udp-port 57141 --wait-for-osc-ms 8000 &
+#   hclang-wamr-full  --script foo.scd --scsynth-host 127.0.0.1 --scsynth-port 57141 --no-server-boot
+#
+#   # WAMR-aot (same flags as wamr-full; loads AOT-compiled .wasm.aot artifacts):
+#   hcsynth-wamr-aot --output out.wav --duration 5 --udp-port 57142 --wait-for-osc-ms 8000 &
+#   hclang-wamr-aot  --script foo.scd --scsynth-host 127.0.0.1 --scsynth-port 57142 --no-server-boot
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  echo "ERROR: hc_tools.rc must be sourced, not executed directly." >&2
+  echo "Usage: source ./hc_tools.rc" >&2
+  exit 1
+fi
+
+# Resolve repo root relative to this file (works with both bash and zsh).
+_HC_TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── WASM wrappers (Node.js + Emscripten build) ─────────────────────────────
+# Both tools are invoked via the cli/ scripts.  All arguments are forwarded.
+
+hclang-wasm() {
+  (cd "$_HC_TOOLS_DIR" && node cli/hclang.js "$@")
+}
+
+hcsynth-wasm() {
+  (cd "$_HC_TOOLS_DIR" && node cli/hcsynth.js "$@")
+}
+
+# ── wamr-full wrappers (WASI .wasm + native WAMR host) ─────────────────────
+# hclang_native and hcsynth_native must run from their respective .wasm
+# directories so the WAMR loader's relative fopen probes resolve correctly.
+
+# Returns the path to the hcsynth .wasm directory, preferring the WASI build.
+_hc_wamr_synth_dir() {
+  if [[ -f "$_HC_TOOLS_DIR/build/wasi/server/hcsynth/hcsynth.wasm" ]]; then
+    echo "$_HC_TOOLS_DIR/build/wasi/server/hcsynth"
+  else
+    echo "$_HC_TOOLS_DIR/build/wasm/server/hcsynth"
+  fi
+}
+
+hclang-wamr-full() {
+  local lang_dir="$_HC_TOOLS_DIR/build/wasi/lang/hclang"
+  local lang_bin="$_HC_TOOLS_DIR/build/native/hclang_host/hclang_native"
+  local classlib="$_HC_TOOLS_DIR/src/class_library"
+  (cd "$lang_dir" && "$lang_bin" --classlib-dir "$classlib" "$@")
+}
+
+hcsynth-wamr-full() {
+  local synth_dir synth_bin
+  synth_dir="$(_hc_wamr_synth_dir)"
+  synth_bin="$_HC_TOOLS_DIR/build/native/hcsynth_host/hcsynth_native"
+  (cd "$synth_dir" && "$synth_bin" "$@")
+}
+
+# ── wamr-aot wrappers (AOT-compiled artifacts + native WAMR host) ──────────
+# Install temporary .aot symlinks so hclang_native / hcsynth_native's
+# fopen("*.aot", "rb") probe succeeds, and set HC_WASM_FROM_DISK=1 so the
+# on-disk .aot is preferred over any embedded blob.  Symlinks are removed
+# after the command exits regardless of its exit code.
+
+hclang-wamr-aot() {
+  local lang_dir="$_HC_TOOLS_DIR/build/wasi/lang/hclang"
+  local lang_bin="$_HC_TOOLS_DIR/build/native/hclang_host/hclang_native"
+  local classlib="$_HC_TOOLS_DIR/src/class_library"
+  ln -sf "$lang_dir/hclang.wasm.aot" "$lang_dir/hclang.aot"
+  (cd "$lang_dir" && HC_WASM_FROM_DISK=1 "$lang_bin" --classlib-dir "$classlib" "$@")
+  local _rc=$?
+  rm -f "$lang_dir/hclang.aot"
+  return $_rc
+}
+
+hcsynth-wamr-aot() {
+  local synth_dir synth_bin
+  synth_dir="$(_hc_wamr_synth_dir)"
+  synth_bin="$_HC_TOOLS_DIR/build/native/hcsynth_host/hcsynth_native"
+  ln -sf "$synth_dir/hcsynth.wasm.aot" "$synth_dir/hcsynth.aot"
+  (cd "$synth_dir" && HC_WASM_FROM_DISK=1 "$synth_bin" "$@")
+  local _rc=$?
+  rm -f "$synth_dir/hcsynth.aot"
+  return $_rc
+}
+
+# ── scscm compiler wrappers ────────────────────────────────────────────────
+# `lhc` runs the source-tree compiler (cli/lhc.js) directly.
+# `lhc-standalone` runs the single-file bundle (dist/lhc.js) — produced by
+# `just bundle-lhc` or downloaded from a GitHub release. The bundle is
+# self-contained and only needs a stock Node.js install.
+
+lhc() {
+  (cd "$_HC_TOOLS_DIR" && node cli/lhc.js "$@")
+}
+
+lhc-standalone() {
+  local bundle="$_HC_TOOLS_DIR/dist/lhc.js"
+  if [[ ! -f "$bundle" ]]; then
+    echo "ERROR: $bundle not found. Build it with: just bundle-lhc" >&2
+    return 1
+  fi
+  node "$bundle" "$@"
+}
+
+# Build the single-file lhc.js bundle (alias for `just bundle-lhc`).
+lhc-bundle() {
+  (cd "$_HC_TOOLS_DIR" && node cli/lhc_bundle.js "$@")
+}
