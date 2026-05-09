@@ -1,2 +1,0 @@
-/usr/bin/ar qc liboscpack.a CMakeFiles/oscpack.dir/oscpack_build.cpp.o
-/usr/bin/ranlib liboscpack.a

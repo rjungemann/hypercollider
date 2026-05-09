@@ -4,11 +4,13 @@
 
 BUILD_DIR      := "build/wasm"
 TESTSUITE_DIR  := "tests"
-PLATFORM_DIR   := "src/platform/wasm/test"
+PLATFORM_DIR   := "src/platform/test"
 DEPLOY_DIR     := "build/deploy"
 SERVER         := "build/wasm/server/hcsynth"
 SCLANG_DIR     := "build/wasm/lang/hclang"
-SCSYNDEF       := "src/testsuite/server/supernova/help_out.scsyndef"
+# SCSYNDEF: optional precompiled SynthDef used by some smoke tests. Not
+# present in current source tree; copy made conditional in stage-test.
+SCSYNDEF       := "src/platform/test/help_out.scsyndef"
 DEPLOY_PROJECT := "hc-wasm-ide"
 SERVE_PORT     := "8000"
 CLI_DIR        := "cli"
@@ -185,7 +187,7 @@ stage-test:
     cp {{SERVER}}/hcsynth.js   {{TESTSUITE_DIR}}/hcsynth-engine.js
     cp {{SERVER}}/hcsynth.wasm {{TESTSUITE_DIR}}/
     @if [ -f {{SERVER}}/hcsynth.data ]; then cp {{SERVER}}/hcsynth.data {{TESTSUITE_DIR}}/; fi
-    cp {{SCSYNDEF}} {{TESTSUITE_DIR}}/
+    @if [ -f {{SCSYNDEF}} ]; then cp {{SCSYNDEF}} {{TESTSUITE_DIR}}/; fi
 
 # Copy build artifacts into the deploy directory
 stage-deploy:

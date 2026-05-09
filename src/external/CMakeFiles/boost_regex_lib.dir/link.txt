@@ -1,2 +1,0 @@
-/usr/bin/ar qc libboost_regex_lib.a CMakeFiles/boost_regex_lib.dir/boost/libs/regex/src/posix_api.cpp.o CMakeFiles/boost_regex_lib.dir/boost/libs/regex/src/regex.cpp.o CMakeFiles/boost_regex_lib.dir/boost/libs/regex/src/regex_debug.cpp.o CMakeFiles/boost_regex_lib.dir/boost/libs/regex/src/static_mutex.cpp.o CMakeFiles/boost_regex_lib.dir/boost/libs/regex/src/wide_posix_api.cpp.o
-/usr/bin/ranlib libboost_regex_lib.a

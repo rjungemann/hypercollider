@@ -14,6 +14,19 @@ __pycache__
 # CPM source cache (set in CMakeLists.txt; overridable via $CPM_SOURCE_CACHE)
 /.cpm_cache/
 
+# CMake-generated build artifacts (CMake configures src/ in-tree by default
+# in some workflows; the actual build output lives under /build/, but cmake
+# also drops these into the source tree). Never check them in.
+**/CMakeFiles/
+**/CTestTestfile.cmake
+**/cmake_install.cmake
+# Generated Makefiles in src/ (every Makefile under src/ is cmake-generated
+# except the two hand-written tlsf ones, explicitly un-ignored below).
+/src/**/Makefile
+!/src/external/tlsf/examples/Makefile
+!/src/external/tlsf/src/Makefile
+/Makefile
+
 *~
 *.orig
 # vim swap files

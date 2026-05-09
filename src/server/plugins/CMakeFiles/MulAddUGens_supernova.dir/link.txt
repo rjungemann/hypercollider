@@ -1,1 +1,0 @@
-/usr/bin/c++ -O2 -g -DNDEBUG -arch arm64 -bundle -Wl,-headerpad_max_install_names -stdlib=libc++ -o MulAddUGens_supernova.scx CMakeFiles/MulAddUGens_supernova.dir/MulAddUGens.cpp.o

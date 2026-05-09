@@ -1,1 +1,0 @@
-../../../testsuite/wasm/ScSynthAudioWorklet.js
