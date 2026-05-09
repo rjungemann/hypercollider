@@ -1,0 +1,120 @@
+{
+  "version": 7,
+  "configurePresets": [
+    {
+      "name": "wasm_release",
+      "displayName": "WebAssembly Release",
+      "description": "Build SuperCollider for WebAssembly (browser/Emscripten)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/wasm",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake_modules/EmscriptenToolchain.cmake",
+        "SC_WASM": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_FIND_ROOT_PATH": "$ENV{EMSDK}/upstream/emscripten",
+        "CMAKE_FIND_ROOT_PATH_MODE_LIBRARY": "ONLY",
+        "CMAKE_FIND_ROOT_PATH_MODE_INCLUDE": "ONLY",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "environment": {
+        "EMSDK_QUIET": "1"
+      }
+    },
+    {
+      "name": "wasm_debug",
+      "displayName": "WebAssembly Debug",
+      "description": "Debug build for WebAssembly with symbols and no optimization",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/wasm_debug",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake_modules/EmscriptenToolchain.cmake",
+        "SC_WASM": "ON",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_FIND_ROOT_PATH": "$ENV{EMSDK}/upstream/emscripten",
+        "CMAKE_FIND_ROOT_PATH_MODE_LIBRARY": "ONLY",
+        "CMAKE_FIND_ROOT_PATH_MODE_INCLUDE": "ONLY",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "environment": {
+        "EMSDK_QUIET": "1"
+      }
+    },
+    {
+      "name": "wasm_release_ninja",
+      "displayName": "WebAssembly Release (Ninja)",
+      "description": "Release build using Ninja for faster incremental rebuilds",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm_ninja",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake_modules/EmscriptenToolchain.cmake",
+        "SC_WASM": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_FIND_ROOT_PATH": "$ENV{EMSDK}/upstream/emscripten",
+        "CMAKE_FIND_ROOT_PATH_MODE_LIBRARY": "ONLY",
+        "CMAKE_FIND_ROOT_PATH_MODE_INCLUDE": "ONLY",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "environment": {
+        "EMSDK_QUIET": "1"
+      }
+    },
+    {
+      "name": "wasm_dev",
+      "displayName": "WebAssembly Dev (fast rebuild)",
+      "description": "Ninja + -O2 for fast iteration; skips expensive Binaryen passes",
+      "inherits": "wasm_release_ninja",
+      "binaryDir": "${sourceDir}/build/wasm_dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "SC_WASM_FAST_BUILD": "ON"
+      }
+    },
+    {
+      "name": "wasi_release",
+      "displayName": "WebAssembly WASI Standalone",
+      "description": "WASM module compatible with WASI hosts (WAMR, Wasmtime)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/wasi",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/cmake_modules/EmscriptenWasiToolchain.cmake",
+        "SC_WASM": "ON",
+        "SC_WASM_WASI": "ON",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_FIND_ROOT_PATH": "$ENV{EMSDK}/upstream/emscripten",
+        "CMAKE_FIND_ROOT_PATH_MODE_LIBRARY": "ONLY",
+        "CMAKE_FIND_ROOT_PATH_MODE_INCLUDE": "ONLY",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "environment": {
+        "EMSDK_QUIET": "1"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "wasm_release",
+      "configurePreset": "wasm_release",
+      "jobs": 0
+    },
+    {
+      "name": "wasm_debug",
+      "configurePreset": "wasm_debug",
+      "jobs": 0
+    },
+    {
+      "name": "wasm_release_ninja",
+      "configurePreset": "wasm_release_ninja",
+      "jobs": 0
+    },
+    {
+      "name": "wasm_dev",
+      "configurePreset": "wasm_dev",
+      "jobs": 0
+    },
+    {
+      "name": "wasi_release",
+      "configurePreset": "wasi_release",
+      "jobs": 0
+    }
+  ]
+}

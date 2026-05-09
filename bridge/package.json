@@ -1,0 +1,26 @@
+{
+  "name": "hc-osc-bridge",
+  "version": "1.0.0",
+  "description": "WebSocket to OSC bridge server for SuperCollider WASM",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "supercollider",
+    "wasm",
+    "osc",
+    "websocket",
+    "bridge"
+  ],
+  "author": "",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "ws": "^8.17.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

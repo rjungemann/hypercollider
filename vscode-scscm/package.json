@@ -1,0 +1,27 @@
+{
+  "name": "scscm",
+  "displayName": "SCSCM (Lisp HyperCollider)",
+  "description": "Syntax highlighting for .scscm (Lisp HyperCollider / lhc) files",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "scscm",
+        "aliases": ["SCSCM", "scscm", "Lisp HyperCollider"],
+        "extensions": [".scscm"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "scscm",
+        "scopeName": "source.scscm",
+        "path": "./syntaxes/scscm.tmLanguage.json"
+      }
+    ]
+  }
+}

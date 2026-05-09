@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+    tags:     [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # ── Pure-JS tests (no WASM build required) ──────────────────────────────────
+  test-js:
+    name: JS-only tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Install CLI dependencies
+        run: npm install
+        working-directory: cli
+
+      - name: Run scscm (hcl) tests
+        run: node tests/test_hcl.js
+        working-directory: cli
+
+      - name: Run SC formatter tests
+        run: node tests/test_sc_format.js
+        working-directory: cli
+
+  # ── WASM build + full CLI tests + standalone bundle generation ───────────────
+  build-and-bundle:
+    name: Build WASM, test, and bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Install CLI dependencies
+        run: npm install
+        working-directory: cli
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '3.1.73'
+          actions-cache-folder: '.emsdk-cache'
+
+      - name: Cache WASM build output
+        uses: actions/cache@v4
+        with:
+          path: build/wasm
+          key: wasm-${{ runner.os }}-${{ hashFiles('engine/**', 'src/**', 'CMakeLists.txt', 'CMakePresets.json', 'cmake_modules/**') }}
+          restore-keys: |
+            wasm-${{ runner.os }}-
+
+      - name: Configure WASM build
+        run: cmake --preset wasm_release
+
+      - name: Build hcsynth and hclang
+        run: |
+          cmake --build build/wasm --target hcsynth -j$(nproc) &
+          cmake --build build/wasm --target hclang  -j$(nproc) &
+          wait
+
+      - name: Stage test artifacts
+        run: |
+          cp build/wasm/server/hcsynth/hcsynth.js   tests/hcsynth-engine.js
+          cp build/wasm/server/hcsynth/hcsynth.wasm tests/
+          if [ -f build/wasm/server/hcsynth/hcsynth.data ]; then
+            cp build/wasm/server/hcsynth/hcsynth.data tests/
+          fi
+          cp src/testsuite/server/supernova/help_out.scsyndef tests/
+
+      - name: Run CLI tests
+        run: |
+          node tests/test_hc.js
+          node tests/test_hcl.js
+          node tests/test_sc_format.js
+        working-directory: cli
+
+      - name: Generate standalone bundles
+        run: node cli/hc_bundle.js --out-dir dist
+
+      - name: Upload standalone bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-bundles
+          path: dist/
+          if-no-files-found: error
+
+      # ── Tagged-release artifacts ────────────────────────────────────────────
+      # Uploaded only when a v* tag is pushed. Two separate artifacts so each
+      # binary can be downloaded standalone from the GitHub Release UI.
+      - name: Stage Node.js bundle — hclang
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir -p release/hclang-nodejs
+          cp build/wasm/lang/hclang/hclang.js              release/hclang-nodejs/
+          cp build/wasm/lang/hclang/hclang.wasm            release/hclang-nodejs/
+          cp build/wasm/lang/hclang/hclang.data            release/hclang-nodejs/ 2>/dev/null || true
+          cp build/wasm/lang/hclang/hclang_classlib.pack   release/hclang-nodejs/ 2>/dev/null || true
+          cp build/wasm/lang/hclang/hclang_snap.bin        release/hclang-nodejs/ 2>/dev/null || true
+
+      - name: Stage Node.js bundle — hcsynth
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir -p release/hcsynth-nodejs
+          cp build/wasm/server/hcsynth/hcsynth.js   release/hcsynth-nodejs/
+          cp build/wasm/server/hcsynth/hcsynth.wasm release/hcsynth-nodejs/
+          cp build/wasm/server/hcsynth/hcsynth.data release/hcsynth-nodejs/ 2>/dev/null || true
+
+      - name: Upload Node.js binaries — hclang
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: hclang-nodejs-${{ github.ref_name }}
+          path: release/hclang-nodejs/
+          if-no-files-found: error
+
+      - name: Upload Node.js binaries — hcsynth
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: hcsynth-nodejs-${{ github.ref_name }}
+          path: release/hcsynth-nodejs/
+          if-no-files-found: error

@@ -1,0 +1,29 @@
+{
+  "name": "sc-ide-smoke-tests",
+  "version": "1.0.0",
+  "description": "Smoke tests for SuperCollider Browser IDE",
+  "main": "run_smoke_tests.js",
+  "scripts": {
+    "test": "node run_smoke_tests.js",
+    "test:phase1": "node run_smoke_tests.js 1",
+    "test:phase2": "node run_smoke_tests.js 2",
+    "test:phase3": "node run_smoke_tests.js 3",
+    "test:phase4": "node run_smoke_tests.js 4",
+    "test:phase5": "node run_smoke_tests.js 5",
+    "test:phase6": "node run_smoke_tests.js 6",
+    "test:phase7": "node run_smoke_tests.js 7",
+    "vendor:codemirror": "node vendor/build-codemirror-vendor.mjs"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0"
+  },
+  "devDependencies": {
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.6",
+    "@lezer/highlight": "^1.2.3",
+    "esbuild": "^0.25.11"
+  }
+}

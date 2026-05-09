@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SuperCollider WASM Real-Time Audio Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: linear-gradient(135deg, #1e1e1e 0%, #2d2d30 100%);
+            color: #d4d4d4;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #007acc;
+            padding-bottom: 20px;
+        }
+
+        h1 {
+            color: #00d7ff;
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            color: #858585;
+            font-size: 14px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .panel {
+            background: #252526;
+            border: 1px solid #444;
+            border-radius: 5px;
+            padding: 20px;
+        }
+
+        .panel h2 {
+            color: #4ec9b0;
+            font-size: 16px;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0098ff;
+        }
+
+        button:active:not(:disabled) {
+            background: #004a99;
+        }
+
+        button:disabled {
+            background: #444;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            color: #858585;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        input[type='range'] {
+            width: 100%;
+            height: 5px;
+            cursor: pointer;
+        }
+
+        input[type='number'] {
+            background: #1e1e1e;
+            color: #00d7ff;
+            border: 1px solid #444;
+            padding: 8px;
+            border-radius: 3px;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        .keyboard {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 3px;
+            margin-top: 15px;
+        }
+
+        .key {
+            aspect-ratio: 1;
+            background: #1e1e1e;
+            border: 1px solid #444;
+            border-radius: 3px;
+            cursor: pointer;
+            color: #858585;
+            font-size: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.1s;
+        }
+
+        .key:hover {
+            background: #2d2d30;
+        }
+
+        .key.playing {
+            background: #00d7ff;
+            color: #1e1e1e;
+            font-weight: bold;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .metric-box {
+            background: #1e1e1e;
+            padding: 12px;
+            border-radius: 3px;
+            border-left: 3px solid #007acc;
+        }
+
+        .metric-label {
+            color: #858585;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        .metric-value {
+            color: #00d7ff;
+            font-size: 18px;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 3px;
+            margin-bottom: 10px;
+            border-left: 4px solid #dcdcaa;
+            background: #2d2d30;
+        }
+
+        .status.success {
+            border-left-color: #4ec9b0;
+            background: #1e3a1e;
+        }
+
+        .status.error {
+            border-left-color: #f48771;
+            background: #3a1e1e;
+        }
+
+        .waveform {
+            width: 100%;
+            height: 150px;
+            background: #1e1e1e;
+            border-radius: 3px;
+            border: 1px solid #444;
+            margin-top: 10px;
+        }
+
+        .info {
+            background: #2d2d30;
+            border-left: 4px solid #007acc;
+            padding: 15px;
+            border-radius: 3px;
+            margin-top: 20px;
+            line-height: 1.6;
+        }
+
+        .info strong {
+            color: #00d7ff;
+        }
+
+        @media (max-width: 1024px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .browser-warning {
+            background: #3a2a1e;
+            border-left: 4px solid #dcdcaa;
+            padding: 15px;
+            border-radius: 3px;
+            margin-bottom: 20px;
+            color: #dcdcaa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎵 SuperCollider WASM Real-Time Audio</h1>
+            <p class="subtitle">Phase 2 Preview — Live AudioWorklet Integration</p>
+        </header>
+
+        <div class="browser-warning">
+            ⚠️ <strong>Browser Requirements:</strong> Chrome/Edge 80+, Firefox 79+, or Safari 14.1+
+            (AudioWorklet support required). Use headphones or speakers for audio output.
+        </div>
+
+        <div class="grid">
+            <!-- Control Panel -->
+            <div class="panel">
+                <h2>🎛️ Playback Controls</h2>
+
+                <div id="status-panel" class="status">Initializing...</div>
+
+                <div class="controls">
+                    <button id="btn-start">▶ Start Audio</button>
+                    <button id="btn-stop" disabled>⏹ Stop Audio</button>
+                </div>
+
+                <h2 style="margin-top: 20px;">🎹 Play a Tone</h2>
+
+                <div class="control-group">
+                    <label>Frequency (Hz)</label>
+                    <input type="range" id="freq-slider" min="50" max="2000" value="440" />
+                    <input type="number" id="freq-value" value="440" min="50" max="2000" />
+                </div>
+
+                <div class="control-group">
+                    <label>Amplitude</label>
+                    <input type="range" id="amp-slider" min="0" max="1" step="0.01" value="0.2" />
+                    <span id="amp-value">0.20</span>
+                </div>
+
+                <div class="control-group">
+                    <button id="btn-play-tone">🔊 Play Tone</button>
+                    <button id="btn-stop-tone" disabled>🔇 Stop Tone</button>
+                </div>
+
+                <h2 style="margin-top: 20px;">⌨️ Keyboard</h2>
+                <div class="keyboard" id="keyboard"></div>
+
+                <div class="info">
+                    <strong>Tip:</strong> Use QWERTY keys to play notes. Each key on your keyboard
+                    corresponds to a piano key. Adjust frequency and amplitude sliders to customize
+                    the sound.
+                </div>
+            </div>
+
+            <!-- Metrics Panel -->
+            <div class="panel">
+                <h2>📊 Performance Metrics</h2>
+
+                <div class="metrics" id="metrics-display">
+                    <div class="metric-box">
+                        <div class="metric-label">CPU Usage</div>
+                        <div class="metric-value" id="metric-cpu">-</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">XRuns</div>
+                        <div class="metric-value" id="metric-xruns">0</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Active Synths</div>
+                        <div class="metric-value" id="metric-synths">0</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Uptime</div>
+                        <div class="metric-value" id="metric-uptime">0s</div>
+                    </div>
+                </div>
+
+                <h2 style="margin-top: 20px;">🌊 Waveform</h2>
+                <canvas id="waveform-display" class="waveform"></canvas>
+
+                <button id="btn-reset-metrics" style="margin-top: 10px; width: 100%;">
+                    Reset Metrics
+                </button>
+            </div>
+        </div>
+
+        <!-- Info Section -->
+        <div class="info">
+            <strong>📝 About This Demo:</strong>
+            <ul style="margin-left: 20px; margin-top: 10px;">
+                <li>Real-time audio synthesis using AudioWorklet</li>
+                <li>Live CPU and performance monitoring</li>
+                <li>Glitch detection (XRuns = render deadline misses)</li>
+                <li>Zero-latency control from main thread to audio thread</li>
+                <li>Supports polyphonic synthesis (multiple notes simultaneously)</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="scsynth.js"></script>
+    <script src="scsynth-realtime.js"></script>
+    <script>
+        // ====================================================================
+        // Real-Time Audio Demo
+        // ====================================================================
+
+        let SC = null;
+        let world = null;
+        let rtWorld = null;
+        let activeTone = null;
+
+        const statusPanel = document.getElementById('status-panel');
+        const btnStart = document.getElementById('btn-start');
+        const btnStop = document.getElementById('btn-stop');
+        const btnPlayTone = document.getElementById('btn-play-tone');
+        const btnStopTone = document.getElementById('btn-stop-tone');
+        const btnResetMetrics = document.getElementById('btn-reset-metrics');
+
+        const freqSlider = document.getElementById('freq-slider');
+        const freqValue = document.getElementById('freq-value');
+        const ampSlider = document.getElementById('amp-slider');
+        const ampValue = document.getElementById('amp-value');
+
+        // Piano key frequencies (A4 = 440 Hz)
+        const keyboardNotes = [
+            { key: 'q', freq: 262 }, // C4
+            { key: 'w', freq: 294 }, // D4
+            { key: 'e', freq: 330 }, // E4
+            { key: 'r', freq: 349 }, // F4
+            { key: 't', freq: 392 }, // G4
+            { key: 'y', freq: 440 }, // A4
+            { key: 'u', freq: 494 }, // B4
+            { key: 'i', freq: 523 }, // C5
+            { key: 'o', freq: 587 }, // D5
+            { key: 'p', freq: 659 }, // E5
+            { key: '[', freq: 698 }, // F5
+            { key: ']', freq: 784 }, // G5
+        ];
+
+        const activeSynths = new Map();
+
+        async function initialize() {
+            try {
+                statusPanel.textContent = '⏳ Loading WASM module...';
+                statusPanel.className = 'status';
+
+                SC = await SuperColliderWasm.initialize('./scsynth.wasm');
+                world = SC.createWorld(48000, 512);
+
+                statusPanel.textContent = '⏳ Initializing AudioWorklet...';
+
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 48000,
+                });
+
+                rtWorld = await RealtimeWorld.create(world, audioContext);
+
+                statusPanel.innerHTML =
+                    '✓ <strong>Ready for real-time audio</strong><br/>Click "Start Audio" to begin.';
+                statusPanel.className = 'status success';
+
+                btnStart.disabled = false;
+                btnPlayTone.disabled = false;
+
+                startMetricsUpdate();
+            } catch (error) {
+                statusPanel.innerHTML = `✗ <strong>Initialization Failed</strong><br/>${error.message}`;
+                statusPanel.className = 'status error';
+                console.error('Initialization error:', error);
+            }
+        }
+
+        // ====================================================================
+        // Control Handlers
+        // ====================================================================
+
+        btnStart.addEventListener('click', () => {
+            rtWorld.audioContext.resume().then(() => {
+                btnStart.disabled = true;
+                btnStop.disabled = false;
+                statusPanel.innerHTML = '▶ <strong>Audio Playing</strong>';
+                statusPanel.className = 'status success';
+            });
+        });
+
+        btnStop.addEventListener('click', () => {
+            rtWorld.stop();
+            btnStart.disabled = false;
+            btnStop.disabled = true;
+            btnPlayTone.disabled = true;
+            btnStopTone.disabled = true;
+            statusPanel.innerHTML = '⏹ <strong>Audio Stopped</strong>';
+            statusPanel.className = 'status';
+            activeSynths.clear();
+            updateMetrics();
+        });
+
+        btnPlayTone.addEventListener('click', () => {
+            const freq = parseFloat(freqSlider.value);
+            const amp = parseFloat(ampSlider.value);
+
+            if (!activeTone) {
+                activeTone = rtWorld.synth('sine', { freq: freq, amp: amp });
+                btnPlayTone.disabled = true;
+                btnStopTone.disabled = false;
+            }
+        });
+
+        btnStopTone.addEventListener('click', () => {
+            if (activeTone) {
+                activeTone.free();
+                activeTone = null;
+            }
+            btnPlayTone.disabled = false;
+            btnStopTone.disabled = true;
+            updateMetrics();
+        });
+
+        // Frequency slider
+        freqSlider.addEventListener('input', (e) => {
+            const freq = e.target.value;
+            freqValue.textContent = freq;
+
+            if (activeTone) {
+                activeTone.set('freq', parseFloat(freq));
+            }
+        });
+
+        freqValue.addEventListener('change', (e) => {
+            const freq = e.target.value;
+            freqSlider.value = freq;
+
+            if (activeTone) {
+                activeTone.set('freq', parseFloat(freq));
+            }
+        });
+
+        // Amplitude slider
+        ampSlider.addEventListener('input', (e) => {
+            const amp = e.target.value;
+            ampValue.textContent = (parseFloat(amp) * 100).toFixed(0) + '%';
+
+            if (activeTone) {
+                activeTone.set('amp', parseFloat(amp));
+            }
+        });
+
+        // Reset metrics
+        btnResetMetrics.addEventListener('click', () => {
+            rtWorld.resetMetrics();
+        });
+
+        // ====================================================================
+        // Keyboard Support
+        // ====================================================================
+
+        function createKeyboard() {
+            const keyboard = document.getElementById('keyboard');
+
+            keyboardNotes.forEach((note) => {
+                const key = document.createElement('div');
+                key.className = 'key';
+                key.textContent = note.key.toUpperCase();
+                key.dataset.key = note.key;
+                key.dataset.freq = note.freq;
+                keyboard.appendChild(key);
+            });
+        }
+
+        document.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            const noteInfo = keyboardNotes.find((n) => n.key === key);
+
+            if (!noteInfo || !rtWorld || !rtWorld.metrics.running) return;
+
+            if (!activeSynths.has(key)) {
+                const synth = rtWorld.synth('sine', { freq: noteInfo.freq, amp: 0.15 });
+                activeSynths.set(key, synth);
+
+                const keyEl = document.querySelector(`[data-key="${key}"]`);
+                if (keyEl) keyEl.classList.add('playing');
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            const key = e.key.toLowerCase();
+
+            if (activeSynths.has(key)) {
+                const synth = activeSynths.get(key);
+                synth.free();
+                activeSynths.delete(key);
+
+                const keyEl = document.querySelector(`[data-key="${key}"]`);
+                if (keyEl) keyEl.classList.remove('playing');
+            }
+        });
+
+        // ====================================================================
+        // Metrics Update Loop
+        // ====================================================================
+
+        function updateMetrics() {
+            if (!rtWorld) return;
+
+            const metrics = rtWorld.getMetrics();
+
+            document.getElementById('metric-cpu').textContent = metrics.cpuPercent.toFixed(1) + '%';
+            document.getElementById('metric-xruns').textContent = metrics.xruns.toString();
+            document.getElementById('metric-synths').textContent = metrics.activeSynths.toString();
+
+            const uptime = Math.floor(metrics.uptime);
+            document.getElementById('metric-uptime').textContent = uptime + 's';
+        }
+
+        function startMetricsUpdate() {
+            setInterval(() => {
+                if (rtWorld && rtWorld.metrics.running) {
+                    rtWorld.requestMetricsUpdate();
+                }
+                updateMetrics();
+            }, 1000);
+        }
+
+        // ====================================================================
+        // Initialization
+        // ====================================================================
+
+        createKeyboard();
+        window.addEventListener('load', initialize);
+    </script>
+</body>
+</html>

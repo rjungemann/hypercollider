@@ -1,0 +1,27 @@
+{
+  "name": "supercollider-wasm-cli",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Node CLI wrappers for SuperCollider WASM sclang + scsynth offline rendering and interactive REPL",
+  "license": "GPL-2.0-or-later",
+  "dependencies": {
+    "speaker": "^0.5.4"
+  },
+  "optionalDependencies": {
+    "midi": "^2.0.0"
+  },
+  "scripts": {
+    "render:smoke": "node sc_cli.js --script examples/sine_wave.scd --output out/smoke.wav --duration 2 --sample-rate 48000 --block-size 512 --channels 2",
+    "repl": "node sc_repl.js",
+    "repl:scscm": "node scscm_repl.js",
+    "test": "node test_cli.js",
+    "test:parity": "node test_cli_parity.js",
+    "test:audio-regression": "node test_audio_regression.js",
+    "test:scscm": "node test_scscm.js",
+    "test:net": "node ../../testsuite/wasm/test_scsynth_cli_udp.js && node ../../testsuite/wasm/test_scsynth_cli_tcp.js && node ../../testsuite/wasm/test_sc_cli_udp_route.js",
+    "test:formats": "node test_cli_formats.js",
+    "test:unix": "node ../../testsuite/wasm/test_sclang_unix_bridge.js",
+    "format:scscm": "node scscm_format.js examples/",
+    "format:scscm:check": "node scscm_format.js --check examples/"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "hypercollider",
+  "private": true,
+  "version": "0.1.0",
+  "description": "HyperCollider CLI tools: hclang and hcsynth WASM offline rendering and interactive REPL",
+  "license": "GPL-2.0-or-later",
+  "optionalDependencies": {
+    "audio-speaker": "^2.3.1",
+    "midi": "^2.0.0"
+  },
+  "scripts": {
+    "render:smoke": "node hc.js --script examples/sine_wave.scd --output out/smoke.wav --duration 2 --sample-rate 48000 --block-size 512 --channels 2",
+    "repl": "node hclang_repl.js",
+    "repl:scscm": "node lhc_repl.js",
+    "test": "node tests/test_hc.js",
+    "test:parity": "node tests/test_hc_parity.js",
+    "test:audio-regression": "node tests/test_hc_regression.js",
+    "test:scscm": "node tests/test_lhc.js",
+    "test:net": "node tests/test_hcsynth_udp.js && node tests/test_hcsynth_tcp.js && node tests/test_hc_udp_route.js",
+    "test:formats": "node tests/test_hc_formats.js",
+    "test:unix": "node tests/test_hclang_unix.js",
+    "format:scscm": "node lhc_format.js examples/",
+    "format:scscm:check": "node lhc_format.js --check examples/",
+    "format:sc": "node sc_format.js ../src/SCClassLibrary/ ../src/HelpSource/",
+    "format:sc:check": "node sc_format.js --check ../src/SCClassLibrary/ ../src/HelpSource/",
+    "test:sc-format": "node tests/test_sc_format.js",
+    "test:hypercollider": "node tests/test_hypercollider_parity.js",
+    "test:hypercollider:smoke": "SKIP_NATIVE=1 node tests/test_hypercollider_parity.js",
+    "test:hypercollider:codegen": "SKIP_WASM=1 node tests/test_hypercollider_parity.js"
+  }
+}

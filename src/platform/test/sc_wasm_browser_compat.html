@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperCollider WASM - Browser Compatibility Test</title>
+  <script src="scsynth.js"></script>
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --bg-card: #16213e;
+      --text: #eaeaea;
+      --text-muted: #888;
+      --success: #4ade80;
+      --warning: #fbbf24;
+      --error: #f87171;
+      --accent: #e94560;
+      --border: #2a2a4a;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+    header { text-align: center; padding: 30px 0; margin-bottom: 30px; }
+    header h1 { font-size: 1.8rem; color: var(--accent); margin-bottom: 10px; }
+    header p { color: var(--text-muted); }
+
+    .card {
+      background: var(--bg-card);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .card h2 {
+      color: var(--accent);
+      margin-bottom: 15px;
+      font-size: 1.2rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+
+    .browser-info {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+
+    .browser-info-item {
+      background: rgba(0,0,0,0.2);
+      padding: 12px;
+      border-radius: 6px;
+    }
+
+    .browser-info-label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .browser-info-value {
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+
+    .test-results {
+      display: grid;
+      gap: 10px;
+    }
+
+    .test-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 6px;
+    }
+
+    .test-status {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+    }
+
+    .test-status.pass { background: var(--success); color: white; }
+    .test-status.fail { background: var(--error); color: white; }
+    .test-status.skip { background: var(--warning); color: black; }
+    .test-status.running { background: var(--accent); color: white; }
+
+    .test-name { flex: 1; font-size: 0.95rem; }
+    .test-time { font-size: 0.85rem; color: var(--text-muted); }
+    .test-error { font-size: 0.85rem; color: var(--error); }
+
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1rem;
+      font-weight: 600;
+      margin-right: 10px;
+    }
+
+    button:hover:not(:disabled) { opacity: 0.9; }
+    button:disabled { background: var(--border); cursor: not-allowed; }
+
+    #log {
+      background: #0a0a0a;
+      padding: 15px;
+      border-radius: 6px;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+    }
+
+    #log .entry { padding: 2px 0; }
+    #log .pass { color: var(--success); }
+    #log .fail { color: var(--error); }
+    #log .warn { color: var(--warning); }
+
+    .summary {
+      margin-top: 20px;
+      padding: 20px;
+      background: rgba(233, 69, 96, 0.1);
+      border-radius: 10px;
+      border: 1px solid rgba(233, 69, 96, 0.3);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+    }
+
+    .summary-item {
+      text-align: center;
+      padding: 10px;
+    }
+
+    .summary-value {
+      font-size: 2rem;
+      font-weight: bold;
+      color: var(--accent);
+    }
+
+    .summary-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    footer {
+      text-align: center;
+      padding: 30px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      border-top: 1px solid var(--border);
+      margin-top: 30px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>SuperCollider WASM - Browser Compatibility Test</h1>
+    <p>Automated browser compatibility verification for SuperCollider WebAssembly port</p>
+  </header>
+
+  <div class="container">
+    <!-- Browser Info -->
+    <div class="card">
+      <h2>Browser Information</h2>
+      <div class="browser-info" id="browser-info">
+        <div class="browser-info-item">
+          <div class="browser-info-label">Browser</div>
+          <div class="browser-info-value" id="browser-name">Detecting...</div>
+        </div>
+        <div class="browser-info-item">
+          <div class="browser-info-label">Version</div>
+          <div class="browser-info-value" id="browser-version">-</div>
+        </div>
+        <div class="browser-info-item">
+          <div class="browser-info-label">Platform</div>
+          <div class="browser-info-value" id="browser-platform">-</div>
+        </div>
+        <div class="browser-info-item">
+          <div class="browser-info-label">Web Audio API</div>
+          <div class="browser-info-value" id="web-audio-support">-</div>
+        </div>
+        <div class="browser-info-item">
+          <div class="browser-info-label">WASM Support</div>
+          <div class="browser-info-value" id="wasm-support">-</div>
+        </div>
+        <div class="browser-info-item">
+          <div class="browser-info-label">SharedArrayBuffer</div>
+          <div class="browser-info-value" id="sab-support">-</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tests -->
+    <div class="card">
+      <h2>Compatibility Tests</h2>
+      <button id="btn-run-tests">Run All Tests</button>
+      <button id="btn-run-benchmark">Run Sustained Benchmark</button>
+      <button id="btn-export-json" disabled>Export Results JSON</button>
+      <button id="btn-clear-results">Clear Results</button>
+      <div class="test-results" id="test-results">
+        <p style="color: var(--text-muted);">Click "Run All Tests" to begin...</p>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <h2>Test Log</h2>
+      <div id="log"></div>
+    </div>
+
+    <!-- Summary -->
+    <div class="card summary" id="summary" style="display: none;">
+      <h2>Test Summary</h2>
+      <div class="summary-grid">
+        <div class="summary-item">
+          <div class="summary-value" id="summary-total">0</div>
+          <div class="summary-label">Total</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-value" id="summary-pass">0</div>
+          <div class="summary-label">Passed</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-value" id="summary-fail">0</div>
+          <div class="summary-label">Failed</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-value" id="summary-skip">0</div>
+          <div class="summary-label">Skipped</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-value" id="summary-time">0ms</div>
+          <div class="summary-label">Total Time</div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <p>SuperCollider WASM Port — Phase 6 Compatibility Test</p>
+    </footer>
+  </div>
+
+  <script>
+    'use strict';
+
+    let M = null;
+    let worldId = 0;
+    let outPtr = 0;
+    const synthId = 1000;
+
+    const SAMPLE_RATE = 44100;
+    const BLOCK_SIZE = 512;
+    const NUM_CHANNELS = 2;
+
+    let detectedBrowser = null;
+    let detectedFeatures = null;
+    let lastCompatReport = null;
+    let lastBenchmarkReport = null;
+
+    function detectBrowser() {
+      const userAgent = navigator.userAgent;
+      let browserName = 'Unknown';
+      let browserVersion = 'Unknown';
+
+      if (userAgent.includes('Firefox')) {
+        browserName = 'Firefox';
+        browserVersion = userAgent.match(/Firefox\/(\d+\.\d+)/)?.[1] || 'Unknown';
+      } else if (userAgent.includes('Safari') && !userAgent.includes('Chrome')) {
+        browserName = 'Safari';
+        browserVersion = userAgent.match(/Version\/(\d+\.\d+)/)?.[1] || 'Unknown';
+      } else if (userAgent.includes('Edg')) {
+        browserName = 'Edge';
+        browserVersion = userAgent.match(/Edg\/(\d+\.\d+)/)?.[1] || 'Unknown';
+      } else if (userAgent.includes('Chrome')) {
+        browserName = 'Chrome';
+        browserVersion = userAgent.match(/Chrome\/(\d+\.\d+)/)?.[1] || 'Unknown';
+      }
+
+      const platform = navigator.platform.includes('Mac') ? 'macOS'
+        : navigator.platform.includes('Win') ? 'Windows'
+        : navigator.platform.includes('Linux') ? 'Linux'
+        : navigator.platform.includes('iPhone') || navigator.platform.includes('iPad') ? 'iOS'
+        : 'Unknown';
+
+      document.getElementById('browser-name').textContent = browserName;
+      document.getElementById('browser-version').textContent = browserVersion;
+      document.getElementById('browser-platform').textContent = platform;
+      return { name: browserName, version: browserVersion, platform };
+    }
+
+    function detectFeatures() {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      document.getElementById('web-audio-support').textContent = audioCtx ? 'Supported' : 'Not Supported';
+      audioCtx.close();
+
+      const wasmSupported = typeof WebAssembly === 'object' && WebAssembly.validate;
+      document.getElementById('wasm-support').textContent = wasmSupported ? 'Supported' : 'Not Supported';
+
+      const sabSupported = typeof SharedArrayBuffer === 'function';
+      document.getElementById('sab-support').textContent = sabSupported ? 'Supported' : 'Not Supported';
+
+      return { webAudio: true, wasm: wasmSupported, sab: sabSupported };
+    }
+
+    function allocCStr(mod, str) {
+      const enc = new TextEncoder().encode(str + '\0');
+      const ptr = mod._malloc(enc.length);
+      mod.HEAPU8.set(enc, ptr);
+      return ptr;
+    }
+
+    function parseSynthDefName(bytes) {
+      const magic = String.fromCharCode(...bytes.slice(0, 4));
+      if (magic !== 'SCgf') return 'help_out';
+      const nameLen = bytes[10];
+      if (11 + nameLen > bytes.length) return 'help_out';
+      return new TextDecoder().decode(bytes.slice(11, 11 + nameLen));
+    }
+
+    function formatMB(bytes) {
+      return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+    }
+
+    function log(msg, level = 'info') {
+      const el = document.getElementById('log');
+      const div = document.createElement('div');
+      div.className = `entry ${level}`;
+      const ts = new Date().toISOString().slice(11, 23);
+      div.textContent = `[${ts}] ${msg}`;
+      el.appendChild(div);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function waitForCondition(check, timeoutMs, intervalMs = 100) {
+      return new Promise((resolve, reject) => {
+        const started = performance.now();
+
+        function tick() {
+          let value = false;
+          try {
+            value = check();
+          } catch (_) {
+            value = false;
+          }
+
+          if (value) {
+            resolve(value);
+            return;
+          }
+
+          if (performance.now() - started > timeoutMs) {
+            reject(new Error('Timed out waiting for condition'));
+            return;
+          }
+
+          setTimeout(tick, intervalMs);
+        }
+
+        tick();
+      });
+    }
+
+    async function runDeployUiSmokeTest() {
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.left = '-9999px';
+      iframe.style.top = '-9999px';
+      iframe.style.width = '1200px';
+      iframe.style.height = '900px';
+
+      const cleanup = () => {
+        if (iframe.parentNode) {
+          iframe.parentNode.removeChild(iframe);
+        }
+      };
+
+      try {
+        const loaded = new Promise((resolve, reject) => {
+          const loadTimeout = setTimeout(() => {
+            reject(new Error('Timed out loading deploy/index.html'));
+          }, 30000);
+
+          iframe.addEventListener('load', () => {
+            clearTimeout(loadTimeout);
+            resolve();
+          }, { once: true });
+        });
+
+        iframe.src = new URL('../../../deploy/index.html', window.location.href).href;
+        document.body.appendChild(iframe);
+        await loaded;
+
+        const doc = iframe.contentDocument;
+        if (!doc) {
+          throw new Error('Cannot access deploy UI document from smoke test');
+        }
+
+        const statusEl = doc.getElementById('status-init');
+        if (!statusEl) {
+          throw new Error('deploy/index.html is missing #status-init');
+        }
+
+        await waitForCondition(() => {
+          return statusEl.classList.contains('success') && /WASM Module Ready/i.test(statusEl.textContent || '');
+        }, 45000);
+
+        const buttons = [
+          'btn-test-init',
+          'btn-test-render',
+          'btn-test-100blocks',
+          'btn-test-stress',
+          'btn-clear-output'
+        ].map((id) => doc.getElementById(id));
+
+        if (buttons.some((btn) => !btn)) {
+          throw new Error('deploy/index.html is missing expected test controls');
+        }
+
+        if (buttons.some((btn) => btn.disabled)) {
+          throw new Error('One or more deploy UI controls stayed disabled after initialization');
+        }
+
+        const consoleEl = doc.getElementById('console-output');
+        if (!consoleEl) {
+          throw new Error('deploy/index.html is missing #console-output');
+        }
+
+        const beforeLines = consoleEl.childElementCount;
+        doc.getElementById('btn-test-init').click();
+
+        await waitForCondition(() => {
+          if (consoleEl.childElementCount <= beforeLines) return false;
+          return /Initialization test passed/i.test(consoleEl.textContent || '');
+        }, 20000);
+
+        doc.getElementById('btn-test-render').click();
+        await waitForCondition(() => /Rendered\s+\d+\s+samples/i.test(consoleEl.textContent || ''), 20000);
+
+        return { passed: true, time: 0 };
+      } finally {
+        cleanup();
+      }
+    }
+
+    const tests = [
+      {
+        name: 'Deploy UI Smoke (Load + Controls)', id: 'deploy-ui-smoke', async run() {
+          const t0 = performance.now();
+          try {
+            await runDeployUiSmokeTest();
+            return { passed: true, time: performance.now() - t0 };
+          } catch (e) {
+            return { passed: false, error: e.message, time: performance.now() - t0 };
+          }
+        }
+      },
+      {
+        // Regression test: SCsynthModule() returns a Promise that resolves with
+        // the initialised Module. An earlier bug used onRuntimeInitialized to
+        // resolve a Promise, but that callback fires synchronously while the outer
+        // `const Module` binding is still in the Temporal Dead Zone, causing:
+        //   ReferenceError: Cannot access 'Module' before initialization
+        // This test ensures SuperColliderWasm.initialize() succeeds without that error.
+        name: 'SuperColliderWasm.initialize() (TDZ regression)', id: 'sc-api-init', async run() {
+          const t0 = performance.now();
+          try {
+            if (typeof SuperColliderWasm === 'undefined') {
+              return { passed: false, error: 'SuperColliderWasm class not found — is scsynth.js loaded?', time: performance.now() - t0 };
+            }
+            const sc = await SuperColliderWasm.initialize('./scsynth.wasm');
+            if (!sc || !sc.Module) {
+              return { passed: false, error: 'initialize() resolved but returned an invalid object', time: performance.now() - t0 };
+            }
+            return { passed: true, time: performance.now() - t0 };
+          } catch (e) {
+            const isTdz = /before initialization/i.test(e.message) || e instanceof ReferenceError;
+            const hint = isTdz ? ' (Temporal Dead Zone bug — onRuntimeInitialized used before Module assigned)' : '';
+            return { passed: false, error: e.message + hint, time: performance.now() - t0 };
+          }
+        }
+      },
+      {
+        name: 'Module Initialization', id: 'module-init', async run() {
+          if (M) return { passed: true, time: 0 };
+          try {
+            M = await SCsynthModule({ print: () => {}, printErr: () => {} });
+            return { passed: true, time: 0 };
+          } catch (e) {
+            return { passed: false, error: e.message, time: 0 };
+          }
+        }
+      },
+      {
+        name: 'World Creation', id: 'world-create', async run() {
+          if (!M) return { passed: false, error: 'Module not initialized', time: 0 };
+          const t0 = performance.now();
+          worldId = M._sc_wasm_world_create(SAMPLE_RATE, BLOCK_SIZE);
+          const dt = performance.now() - t0;
+          return worldId > 0 ? { passed: true, time: dt } : { passed: false, error: `World creation failed: ${worldId}`, time: dt };
+        }
+      },
+      {
+        name: 'World Configuration', id: 'world-config', async run() {
+          if (!M || !worldId) return { passed: false, error: 'World not created', time: 0 };
+          const sr = M._sc_wasm_world_sample_rate(worldId);
+          const bs = M._sc_wasm_world_block_size(worldId);
+          return (sr === SAMPLE_RATE && bs === BLOCK_SIZE)
+            ? { passed: true, time: 0 }
+            : { passed: false, error: `SR=${sr} (expected ${SAMPLE_RATE}), BS=${bs} (expected ${BLOCK_SIZE})`, time: 0 };
+        }
+      },
+      {
+        name: 'Output Buffer Allocation', id: 'buffer-alloc', async run() {
+          if (!M) return { passed: false, error: 'Module not initialized', time: 0 };
+          const t0 = performance.now();
+          outPtr = M._malloc(BLOCK_SIZE * NUM_CHANNELS * 4);
+          const dt = performance.now() - t0;
+          return outPtr > 0 ? { passed: true, time: dt } : { passed: false, error: 'Buffer allocation failed', time: dt };
+        }
+      },
+      {
+        name: 'Silence Rendering', id: 'render-silence', async run() {
+          if (!M || !worldId || !outPtr) return { passed: false, error: 'Prerequisites not met', time: 0 };
+          const t0 = performance.now();
+          M.HEAPF32.fill(0, outPtr >> 2, (outPtr >> 2) + BLOCK_SIZE * NUM_CHANNELS);
+          const ret = M._sc_wasm_render(worldId, outPtr, BLOCK_SIZE, NUM_CHANNELS);
+          const dt = performance.now() - t0;
+          if (ret !== 0) return { passed: false, error: `Render failed: ${ret}`, time: dt };
+          const outView = new Float32Array(M.HEAPF32.buffer, outPtr, BLOCK_SIZE * NUM_CHANNELS);
+          const maxVal = Math.max(...Array.from(outView).map(Math.abs));
+          return maxVal < 1e-6 ? { passed: true, time: dt } : { passed: false, error: `Expected silence, got max=${maxVal}`, time: dt };
+        }
+      },
+      {
+        name: 'SynthDef Loading', id: 'synthdef-load', async run() {
+          if (!M || !worldId) return { passed: false, error: 'World not ready', time: 0 };
+          let bytes;
+          try {
+            const resp = await fetch(new URL('./help_out.scsyndef', window.location.href).href);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            bytes = new Uint8Array(await resp.arrayBuffer());
+          } catch (e) {
+            return { passed: false, error: `Failed to fetch: ${e.message}`, time: 0 };
+          }
+          const t0 = performance.now();
+          const defPtr = M._malloc(bytes.length);
+          M.HEAPU8.set(bytes, defPtr);
+          const ret = M._sc_wasm_load_synthdef(worldId, defPtr, bytes.length, 0);
+          M._free(defPtr);
+          const dt = performance.now() - t0;
+          return ret === 0 ? { passed: true, time: dt } : { passed: false, error: `Load failed: ${ret}`, time: dt };
+        }
+      },
+      {
+        name: 'Synth Creation', id: 'synth-create', async run() {
+          if (!M || !worldId) return { passed: false, error: 'World not ready', time: 0 };
+          const t0 = performance.now();
+          const namePtr = allocCStr(M, 'help_out');
+          const ret = M._sc_wasm_synth_new(worldId, namePtr, synthId, 1, 0);
+          M._free(namePtr);
+          const dt = performance.now() - t0;
+          return ret === 0 ? { passed: true, time: dt } : { passed: false, error: `Synth creation failed: ${ret}`, time: dt };
+        }
+      },
+      {
+        name: 'Audio Rendering (10 blocks)', id: 'render-audio', async run() {
+          if (!M || !worldId || !outPtr) return { passed: false, error: 'Prerequisites not met', time: 0 };
+          const t0 = performance.now();
+          let maxVal = 0;
+          for (let b = 0; b < 10; b++) {
+            M.HEAPF32.fill(0, outPtr >> 2, (outPtr >> 2) + BLOCK_SIZE * NUM_CHANNELS);
+            const ret = M._sc_wasm_render(worldId, outPtr, BLOCK_SIZE, NUM_CHANNELS);
+            if (ret !== 0) return { passed: false, error: `Block ${b} failed: ${ret}`, time: performance.now() - t0 };
+            const outView = new Float32Array(M.HEAPF32.buffer, outPtr, BLOCK_SIZE * NUM_CHANNELS);
+            for (let i = 0; i < outView.length; i++) {
+              const v = Math.abs(outView[i]);
+              if (v > maxVal) maxVal = v;
+            }
+          }
+          const dt = performance.now() - t0;
+          return maxVal > 1e-6 ? { passed: true, time: dt } : { passed: false, error: `Expected audio, got max=${maxVal}`, time: dt };
+        }
+      },
+      {
+        name: 'Web Audio API Playback', id: 'web-audio-playback', async run() {
+          const t0 = performance.now();
+          try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const buf = audioCtx.createBuffer(2, 44100, 44100);
+            const source = audioCtx.createBufferSource();
+            source.buffer = buf;
+            source.connect(audioCtx.destination);
+            audioCtx.close();
+            return { passed: true, time: performance.now() - t0 };
+          } catch (e) {
+            return { passed: false, error: e.message, time: performance.now() - t0 };
+          }
+        }
+      },
+      {
+        name: 'Performance Check (100 blocks)', id: 'performance-check', async run() {
+          if (!M || !worldId || !outPtr) return { passed: false, error: 'Prerequisites not met', time: 0 };
+          const t0 = performance.now();
+          for (let b = 0; b < 100; b++) {
+            M.HEAPF32.fill(0, outPtr >> 2, (outPtr >> 2) + BLOCK_SIZE * NUM_CHANNELS);
+            const ret = M._sc_wasm_render(worldId, outPtr, BLOCK_SIZE, NUM_CHANNELS);
+            if (ret !== 0) return { passed: false, error: `Block ${b} failed`, time: performance.now() - t0 };
+          }
+          const dt = performance.now() - t0;
+          return dt < 1000 ? { passed: true, time: dt } : { passed: false, error: `Slow rendering: ${dt.toFixed(1)}ms for 100 blocks`, time: dt };
+        }
+      }
+    ];
+
+    function updateTestResult(testId, result) {
+      const resultsEl = document.getElementById('test-results');
+      const existing = document.getElementById(`test-${testId}`);
+      if (existing) resultsEl.removeChild(existing);
+
+      const div = document.createElement('div');
+      div.id = `test-${testId}`;
+      div.className = 'test-item';
+
+      const statusEl = document.createElement('div');
+      statusEl.className = `test-status ${result.passed ? 'pass' : result.error ? 'fail' : 'skip'}`;
+      statusEl.textContent = result.passed ? '✓' : result.error ? '✗' : '○';
+
+      const nameEl = document.createElement('div');
+      nameEl.className = 'test-name';
+      nameEl.textContent = tests.find(t => t.id === testId)?.name || testId;
+
+      const timeEl = document.createElement('div');
+      timeEl.className = 'test-time';
+      timeEl.textContent = result.time > 0 ? `${result.time.toFixed(1)}ms` : '';
+
+      div.appendChild(statusEl);
+      div.appendChild(nameEl);
+      div.appendChild(timeEl);
+      if (result.error) {
+        const errorEl = document.createElement('div');
+        errorEl.className = 'test-error';
+        errorEl.textContent = result.error;
+        div.appendChild(errorEl);
+      }
+      resultsEl.appendChild(div);
+    }
+
+    async function runAllTests() {
+      const runBtn = document.getElementById('btn-run-tests');
+      const benchBtn = document.getElementById('btn-run-benchmark');
+      const exportBtn = document.getElementById('btn-export-json');
+      runBtn.disabled = true;
+      benchBtn.disabled = true;
+      exportBtn.disabled = true;
+      runBtn.textContent = 'Running...';
+
+      document.getElementById('test-results').innerHTML = '';
+      document.getElementById('log').innerHTML = '';
+      document.getElementById('summary').style.display = 'none';
+      log('Starting browser compatibility tests...', 'info');
+
+      const t0 = performance.now();
+      let passCount = 0;
+      let failCount = 0;
+      let skipCount = 0;
+      const testResults = [];
+
+      M = null;
+      worldId = 0;
+      outPtr = 0;
+
+      for (const test of tests) {
+        updateTestResult(test.id, { passed: false, running: true });
+        log(`Running: ${test.name}...`, 'info');
+        try {
+          const result = await test.run();
+          if (result.passed) {
+            passCount++;
+            log(`✓ PASSED: ${test.name} (${result.time.toFixed(1)}ms)`, 'pass');
+          } else if (result.error) {
+            failCount++;
+            log(`✗ FAILED: ${test.name} - ${result.error}`, 'fail');
+          } else {
+            skipCount++;
+            log(`○ SKIPPED: ${test.name}`, 'warn');
+          }
+          updateTestResult(test.id, result);
+          testResults.push({
+            id: test.id,
+            name: test.name,
+            passed: !!result.passed,
+            error: result.error || null,
+            timeMs: Number((result.time || 0).toFixed(3))
+          });
+        } catch (e) {
+          failCount++;
+          log(`✗ EXCEPTION: ${test.name} - ${e.message}`, 'fail');
+          updateTestResult(test.id, { passed: false, error: e.message, time: 0 });
+          testResults.push({ id: test.id, name: test.name, passed: false, error: e.message, timeMs: 0 });
+        }
+      }
+
+      const totalMs = performance.now() - t0;
+      document.getElementById('summary-total').textContent = tests.length;
+      document.getElementById('summary-pass').textContent = passCount;
+      document.getElementById('summary-fail').textContent = failCount;
+      document.getElementById('summary-skip').textContent = skipCount;
+      document.getElementById('summary-time').textContent = `${totalMs.toFixed(1)}ms`;
+      document.getElementById('summary').style.display = 'block';
+
+      log(`Tests complete: ${passCount}/${tests.length} passed, ${failCount} failed, ${skipCount} skipped`, 'info');
+      log(`Total time: ${totalMs.toFixed(1)}ms`, 'info');
+
+      lastCompatReport = {
+        type: 'compatibility',
+        generatedAt: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        browser: detectedBrowser,
+        features: detectedFeatures,
+        summary: {
+          total: tests.length,
+          passed: passCount,
+          failed: failCount,
+          skipped: skipCount,
+          totalTimeMs: Number(totalMs.toFixed(3))
+        },
+        tests: testResults
+      };
+
+      runBtn.disabled = false;
+      benchBtn.disabled = false;
+      exportBtn.disabled = false;
+      runBtn.textContent = 'Run All Tests';
+      document.getElementById('summary').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function runSustainedBenchmark() {
+      const runBtn = document.getElementById('btn-run-tests');
+      const benchBtn = document.getElementById('btn-run-benchmark');
+      const exportBtn = document.getElementById('btn-export-json');
+      runBtn.disabled = true;
+      benchBtn.disabled = true;
+      exportBtn.disabled = true;
+      benchBtn.textContent = 'Benchmarking...';
+
+      try {
+        log('Starting sustained benchmark (10s/30s/60s + load matrix)...', 'info');
+        const memSupported = !!(performance.memory && typeof performance.memory.usedJSHeapSize === 'number');
+
+        const mod = await SCsynthModule({ print: () => {}, printErr: () => {} });
+        const wid = mod._sc_wasm_world_create(SAMPLE_RATE, BLOCK_SIZE);
+        if (!wid) throw new Error('World creation failed');
+
+        const ptr = mod._malloc(BLOCK_SIZE * NUM_CHANNELS * 4);
+        if (!ptr) throw new Error('Output buffer allocation failed');
+
+        const resp = await fetch(new URL('./help_out.scsyndef', window.location.href).href);
+        if (!resp.ok) throw new Error(`SynthDef fetch failed: HTTP ${resp.status}`);
+        const bytes = new Uint8Array(await resp.arrayBuffer());
+        const synthName = parseSynthDefName(bytes);
+
+        const defPtr = mod._malloc(bytes.length);
+        mod.HEAPU8.set(bytes, defPtr);
+        const loadRet = mod._sc_wasm_load_synthdef(wid, defPtr, bytes.length, 0);
+        mod._free(defPtr);
+        if (loadRet !== 0) throw new Error(`sc_wasm_load_synthdef failed: ${loadRet}`);
+
+        function createSynth(nodeId, freq, amp) {
+          const namePtr = allocCStr(mod, synthName);
+          const newRet = mod._sc_wasm_synth_new(wid, namePtr, nodeId, 1, 0);
+          mod._free(namePtr);
+          if (newRet !== 0) throw new Error(`sc_wasm_synth_new failed: ${newRet}`);
+          const freqPtr = allocCStr(mod, 'freq');
+          const ampPtr = allocCStr(mod, 'amp');
+          const setFreqRet = mod._sc_wasm_synth_set(wid, nodeId, freqPtr, freq);
+          const setAmpRet = mod._sc_wasm_synth_set(wid, nodeId, ampPtr, amp);
+          mod._free(freqPtr);
+          mod._free(ampPtr);
+          if (setFreqRet !== 0 || setAmpRet !== 0) throw new Error('sc_wasm_synth_set failed');
+        }
+
+        function freeSynth(nodeId) {
+          mod._sc_wasm_synth_free(wid, nodeId);
+        }
+
+        function renderForSeconds(seconds) {
+          const blocks = Math.ceil((seconds * SAMPLE_RATE) / BLOCK_SIZE);
+          const audioMs = (blocks * BLOCK_SIZE / SAMPLE_RATE) * 1000;
+          const base = ptr >> 2;
+          let maxAbs = 0;
+          let sumSq = 0;
+          let sampleCount = 0;
+          let peakJsHeap = memSupported ? performance.memory.usedJSHeapSize : null;
+
+          const tRender = performance.now();
+          for (let b = 0; b < blocks; b++) {
+            mod.HEAPF32.fill(0, base, base + BLOCK_SIZE * NUM_CHANNELS);
+            const ret = mod._sc_wasm_render(wid, ptr, BLOCK_SIZE, NUM_CHANNELS);
+            if (ret !== 0) throw new Error(`sc_wasm_render failed at block ${b}: ${ret}`);
+            for (let i = 0; i < BLOCK_SIZE * NUM_CHANNELS; i++) {
+              const v = mod.HEAPF32[base + i];
+              const av = Math.abs(v);
+              if (av > maxAbs) maxAbs = av;
+              sumSq += v * v;
+              sampleCount++;
+            }
+            if (memSupported && (b % 50 === 0)) {
+              const heap = performance.memory.usedJSHeapSize;
+              if (heap > peakJsHeap) peakJsHeap = heap;
+            }
+          }
+
+          const renderMs = performance.now() - tRender;
+          return {
+            seconds,
+            blocks,
+            renderMs: Number(renderMs.toFixed(3)),
+            realtimeRatio: Number((audioMs / Math.max(renderMs, 0.0001)).toFixed(3)),
+            maxAbs: Number(maxAbs.toFixed(6)),
+            rms: Number(Math.sqrt(sumSq / Math.max(sampleCount, 1)).toFixed(6)),
+            wasmHeapBytes: mod.HEAPF32.buffer.byteLength,
+            jsHeapUsedBytes: memSupported ? performance.memory.usedJSHeapSize : null,
+            jsHeapPeakBytes: peakJsHeap
+          };
+        }
+
+        createSynth(1000, 440, 0.3);
+        const durations = [10, 30, 60].map(renderForSeconds);
+        freeSynth(1000);
+
+        const loadProfiles = [];
+        for (const count of [1, 8, 32]) {
+          const ids = [];
+          for (let i = 0; i < count; i++) {
+            const nodeId = 2000 + i;
+            ids.push(nodeId);
+            createSynth(nodeId, 220 + (i % 12) * 20, Math.min(0.15, 0.6 / count));
+          }
+          loadProfiles.push({ activeSynths: count, ...renderForSeconds(10) });
+          ids.forEach(freeSynth);
+        }
+
+        mod._free(ptr);
+        mod._sc_wasm_world_destroy(wid);
+
+        lastBenchmarkReport = {
+          type: 'sustained-benchmark',
+          generatedAt: new Date().toISOString(),
+          userAgent: navigator.userAgent,
+          browser: detectedBrowser,
+          features: detectedFeatures,
+          memSupported,
+          synthName,
+          durations,
+          loadProfiles
+        };
+
+        log('✓ Benchmark complete', 'pass');
+        durations.forEach(d => log(`  ${d.seconds}s: ${d.renderMs}ms, ratio=${d.realtimeRatio}x, max=${d.maxAbs}, rms=${d.rms}`, 'pass'));
+        loadProfiles.forEach(p => log(`  load=${p.activeSynths}: ${p.renderMs}ms, ratio=${p.realtimeRatio}x, wasm=${formatMB(p.wasmHeapBytes)}`, 'pass'));
+      } catch (e) {
+        log(`✗ Benchmark failed: ${e.message}`, 'fail');
+      } finally {
+        runBtn.disabled = false;
+        benchBtn.disabled = false;
+        exportBtn.disabled = !(lastCompatReport || lastBenchmarkReport);
+        benchBtn.textContent = 'Run Sustained Benchmark';
+      }
+    }
+
+    function exportResultsJson() {
+      const report = {
+        generatedAt: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        browser: detectedBrowser,
+        features: detectedFeatures,
+        compatibility: lastCompatReport,
+        benchmark: lastBenchmarkReport
+      };
+
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const browserLabel = detectedBrowser ? `${detectedBrowser.name || 'unknown'}-${detectedBrowser.version || 'unknown'}` : 'unknown';
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sc-wasm-phase6-${browserLabel}-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      log('Exported JSON report', 'info');
+    }
+
+    document.getElementById('btn-run-tests').addEventListener('click', runAllTests);
+    document.getElementById('btn-run-benchmark').addEventListener('click', runSustainedBenchmark);
+    document.getElementById('btn-export-json').addEventListener('click', exportResultsJson);
+    document.getElementById('btn-clear-results').addEventListener('click', () => {
+      document.getElementById('test-results').innerHTML = '<p style="color: var(--text-muted);">Click "Run All Tests" to begin...</p>';
+      document.getElementById('log').innerHTML = '';
+      document.getElementById('summary').style.display = 'none';
+      lastCompatReport = null;
+      lastBenchmarkReport = null;
+      document.getElementById('btn-export-json').disabled = true;
+    });
+
+    window.addEventListener('load', () => {
+      detectedBrowser = detectBrowser();
+      detectedFeatures = detectFeatures();
+      log('Browser compatibility test ready. Click "Run All Tests" to begin.', 'info');
+    });
+  </script>
+</body>
+</html>

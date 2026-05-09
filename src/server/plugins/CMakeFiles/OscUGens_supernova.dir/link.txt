@@ -1,0 +1,1 @@
+/usr/bin/c++ -O2 -g -DNDEBUG -arch arm64 -bundle -Wl,-headerpad_max_install_names -stdlib=libc++ -o OscUGens_supernova.scx CMakeFiles/OscUGens_supernova.dir/OscUGens.cpp.o

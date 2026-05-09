@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperCollider WASM – Main Thread Test</title>
+  <!-- scsynth.js is loaded as a regular <script> in the main thread where
+       Emscripten's MODULARIZE factory works correctly. No Workers or
+       AudioWorklet needed for this test. -->
+  <script src="scsynth.js"></script>
+  <style>
+    body {
+      font-family: 'Monaco', 'Courier New', monospace;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #1e1e1e;
+      color: #d4d4d4;
+    }
+    h1, h2 { color: #9cdcfe; margin-top: 0; }
+    .section {
+      background: #252526;
+      border-radius: 6px;
+      padding: 18px;
+      margin-bottom: 16px;
+      border: 1px solid #3e3e42;
+    }
+    .log-window {
+      background: #0e0e0e;
+      color: #4ec9b0;
+      padding: 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.5;
+      height: 220px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+    }
+    .log-info  { color: #4ec9b0; }
+    .log-warn  { color: #dcdcaa; }
+    .log-error { color: #f44747; }
+    button {
+      background: #0e639c;
+      color: #fff;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      margin-right: 6px;
+      margin-bottom: 6px;
+      font-family: inherit;
+    }
+    button:hover { background: #1177bb; }
+    button:disabled { background: #3e3e42; color: #888; cursor: not-allowed; }
+    .status-row { display: flex; align-items: center; gap: 10px; }
+    .dot {
+      width: 12px; height: 12px; border-radius: 50%;
+      background: #f44747;
+      flex-shrink: 0;
+    }
+    .dot.ok     { background: #4ec9b0; }
+    .dot.busy   { background: #dcdcaa; animation: blink 0.8s infinite; }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 12px; }
+    .stat-box {
+      background: #1e1e1e;
+      padding: 10px;
+      border-radius: 4px;
+      border-left: 3px solid #0e639c;
+    }
+    .stat-label { font-size: 10px; color: #888; text-transform: uppercase; }
+    .stat-value { font-size: 20px; font-weight: bold; color: #9cdcfe; }
+    canvas { width: 100%; height: 100px; display: block; background: #0e0e0e; border-radius: 4px; margin-top: 8px; }
+    input[type=range] { vertical-align: middle; }
+    label { font-size: 13px; margin-right: 6px; }
+  </style>
+</head>
+<body>
+
+<h1>SuperCollider WASM — Main Thread</h1>
+
+<div class="section">
+  <h2>Engine Status</h2>
+  <div class="status-row">
+    <div class="dot busy" id="status-dot"></div>
+    <span id="status-text">Loading scsynth.js…</span>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Controls</h2>
+  <button id="btn-init"   disabled>Init Engine</button>
+  <button id="btn-load"   disabled>Load SynthDef</button>
+  <button id="btn-synth"  disabled>New Synth</button>
+  <button id="btn-render" disabled>Render &amp; Play (1 s)</button>
+  <button id="btn-stop"   disabled>Stop</button>
+  <br>
+  <label>Freq:
+    <input type="range" id="slider-freq" min="100" max="2000" value="440" step="1">
+    <span id="lbl-freq">440</span> Hz
+  </label>
+  &nbsp;&nbsp;
+  <label>Amp:
+    <input type="range" id="slider-amp" min="0" max="1" value="0.3" step="0.01">
+    <span id="lbl-amp">0.30</span>
+  </label>
+</div>
+
+<div class="section">
+  <h2>Render Statistics</h2>
+  <div class="stats" id="stats-container">
+    <div class="stat-box"><div class="stat-label">Max Level</div><div class="stat-value" id="stat-max">—</div></div>
+    <div class="stat-box"><div class="stat-label">RMS</div><div class="stat-value" id="stat-rms">—</div></div>
+    <div class="stat-box"><div class="stat-label">Render Time</div><div class="stat-value" id="stat-rt">—</div></div>
+    <div class="stat-box"><div class="stat-label">Render Ratio</div><div class="stat-value" id="stat-ratio">—</div></div>
+  </div>
+  <canvas id="waveform-canvas"></canvas>
+</div>
+
+<div class="section">
+  <h2>Log</h2>
+  <button id="btn-clear-log">Clear</button>
+  <div class="log-window" id="log-window"></div>
+</div>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────────────────────
+let M = null;           // Emscripten Module instance
+let worldId = 0;
+let outPtr  = 0;
+let synthId = 1000;
+let synthCreated = false;
+let audioCtx = null;
+let sourceNode = null;
+
+const SAMPLE_RATE  = 44100;
+const BLOCK_SIZE   = 512;
+const NUM_CHANNELS = 2;
+
+// ─────────────────────────────────────────────────────────────
+//  Logging
+// ─────────────────────────────────────────────────────────────
+function log(msg, level = 'info') {
+  const el = document.getElementById('log-window');
+  const div = document.createElement('div');
+  div.className = `log-${level}`;
+  const ts = new Date().toISOString().slice(11, 23);
+  div.textContent = `[${ts}] ${msg}`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  if (level === 'error') console.error(msg);
+  else console.log(msg);
+}
+
+function setStatus(text, state) {
+  document.getElementById('status-text').textContent = text;
+  const dot = document.getElementById('status-dot');
+  dot.className = 'dot ' + (state === 'ok' ? 'ok' : state === 'busy' ? 'busy' : '');
+}
+
+// ─────────────────────────────────────────────────────────────
+//  WASM init (runs after <script src="scsynth.js"> is parsed)
+// ─────────────────────────────────────────────────────────────
+async function initScsynth() {
+  setStatus('Initialising SCsynthModule…', 'busy');
+  log('Calling SCsynthModule() factory…');
+
+  try {
+    M = await SCsynthModule({
+      print:    (t) => log(`[sc] ${t}`, 'info'),
+      printErr: (t) => log(`[sc] ${t}`, 'warn'),
+    });
+    log('scsynth.js loaded and instantiated OK');
+    setStatus('Module ready — click Init Engine', 'ok');
+    document.getElementById('btn-init').disabled = false;
+  } catch (err) {
+    log(`SCsynthModule() failed: ${err.message}`, 'error');
+    setStatus(`Module error: ${err.message}`, 'error');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Engine init
+// ─────────────────────────────────────────────────────────────
+function initEngine() {
+  if (!M) { log('Module not ready', 'error'); return; }
+
+  worldId = M._sc_wasm_world_create(SAMPLE_RATE, BLOCK_SIZE);
+  if (!worldId) { log('sc_wasm_world_create failed', 'error'); return; }
+
+  const sr = M._sc_wasm_world_sample_rate(worldId);
+  const bs = M._sc_wasm_world_block_size(worldId);
+  log(`World created: id=${worldId}, SR=${sr}, blockSize=${bs}`);
+
+  // Allocate a persistent output buffer (one block, interleaved stereo)
+  outPtr = M._malloc(BLOCK_SIZE * NUM_CHANNELS * 4 /* float32 */);
+  log(`Output buffer allocated at 0x${outPtr.toString(16)}`);
+
+  setStatus('Engine running', 'ok');
+  document.getElementById('btn-init').disabled   = true;
+  document.getElementById('btn-load').disabled   = false;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  SynthDef loading (fetches help_out.scsyndef relative to page)
+// ─────────────────────────────────────────────────────────────
+async function loadSynthDef() {
+  const defUrl = new URL('./help_out.scsyndef', window.location.href).href;
+  log(`Fetching synthdef from: ${defUrl}`);
+
+  let bytes;
+  try {
+    const resp = await fetch(defUrl);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    bytes = new Uint8Array(await resp.arrayBuffer());
+  } catch (err) {
+    log(`Failed to fetch synthdef: ${err.message}`, 'error');
+    return;
+  }
+
+  const defPtr = M._malloc(bytes.length);
+  M.HEAPU8.set(bytes, defPtr);
+  const result = M._sc_wasm_load_synthdef(worldId, defPtr, bytes.length, 0);
+  M._free(defPtr);
+
+  if (result !== 0) {
+    log(`sc_wasm_load_synthdef failed: ${result}`, 'error');
+    return;
+  }
+
+  const name = parseSynthDefName(bytes);
+  log(`SynthDef loaded: "${name}" (${bytes.length} bytes)`);
+  window._synthdefName = name;
+
+  document.getElementById('btn-synth').disabled = false;
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Synth creation
+// ─────────────────────────────────────────────────────────────
+function newSynth() {
+  const name = window._synthdefName || 'help_out';
+  const namePtr = allocCStr(M, name);
+  const result  = M._sc_wasm_synth_new(worldId, namePtr, synthId, 1, 0);
+  M._free(namePtr);
+
+  if (result !== 0) { log(`sc_wasm_synth_new failed: ${result}`, 'error'); return; }
+
+  synthCreated = true;
+  log(`Synth created: name="${name}", id=${synthId}`);
+  document.getElementById('btn-render').disabled = false;
+
+  // Apply initial control values
+  applyControls();
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Control knobs
+// ─────────────────────────────────────────────────────────────
+function applyControls() {
+  if (!synthCreated || !M) return;
+  const freq = parseFloat(document.getElementById('slider-freq').value);
+  const amp  = parseFloat(document.getElementById('slider-amp').value);
+  setSynthCtl('freq', freq);
+  setSynthCtl('amp', amp);
+}
+
+function setSynthCtl(key, value) {
+  const keyPtr = allocCStr(M, key);
+  M._sc_wasm_synth_set(worldId, synthId, keyPtr, value);
+  M._free(keyPtr);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Render & play
+// ─────────────────────────────────────────────────────────────
+async function renderAndPlay() {
+  if (!worldId || !outPtr) { log('Engine not ready', 'error'); return; }
+
+  applyControls();
+
+  const numBlocks = Math.ceil(SAMPLE_RATE / BLOCK_SIZE); // ~1 second
+  const totalSamples = numBlocks * BLOCK_SIZE;
+
+  log(`Rendering ${numBlocks} blocks (${totalSamples} samples, ${NUM_CHANNELS} ch)…`);
+
+  const t0 = performance.now();
+
+  // Build separate channel buffers (non-interleaved for AudioBuffer)
+  const ch0 = new Float32Array(totalSamples);
+  const ch1 = new Float32Array(totalSamples);
+  let offset = 0;
+
+  for (let b = 0; b < numBlocks; b++) {
+    M.HEAPF32.fill(0, outPtr >> 2, (outPtr >> 2) + BLOCK_SIZE * NUM_CHANNELS);
+    const ret = M._sc_wasm_render(worldId, outPtr, BLOCK_SIZE, NUM_CHANNELS);
+    if (ret !== 0) { log(`render block ${b} failed: ${ret}`, 'error'); break; }
+
+    // scsynth writes channels contiguously: [ch0[0..N-1], ch1[0..N-1]]
+    const heap = M.HEAPF32;
+    const base = outPtr >> 2;
+    ch0.set(heap.subarray(base,                    base + BLOCK_SIZE),            offset);
+    ch1.set(heap.subarray(base + BLOCK_SIZE,       base + BLOCK_SIZE * 2),        offset);
+    offset += BLOCK_SIZE;
+  }
+
+  const renderMs = performance.now() - t0;
+  const audioDurMs = (totalSamples / SAMPLE_RATE) * 1000;
+  const ratio = audioDurMs / renderMs;
+
+  // Update stats
+  const allSamples = [...ch0, ...ch1];
+  const maxLevel = Math.max(...allSamples.map(Math.abs));
+  const rms = Math.sqrt(allSamples.reduce((s, x) => s + x * x, 0) / allSamples.length);
+
+  document.getElementById('stat-max').textContent   = maxLevel.toFixed(4);
+  document.getElementById('stat-rms').textContent   = rms.toFixed(4);
+  document.getElementById('stat-rt').textContent    = `${renderMs.toFixed(1)}ms`;
+  document.getElementById('stat-ratio').textContent = `${ratio.toFixed(1)}×`;
+
+  log(`Render complete in ${renderMs.toFixed(1)}ms — max=${maxLevel.toFixed(4)}, RMS=${rms.toFixed(4)}, ratio=${ratio.toFixed(1)}×`);
+
+  drawWaveform(ch0, ch1);
+  playAudioBuffers(ch0, ch1);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Web Audio playback
+// ─────────────────────────────────────────────────────────────
+function playAudioBuffers(ch0, ch1) {
+  if (sourceNode) { try { sourceNode.stop(); } catch(e) {} }
+
+  if (!audioCtx) {
+    audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+
+  const buf = audioCtx.createBuffer(NUM_CHANNELS, ch0.length, SAMPLE_RATE);
+  buf.copyToChannel(ch0, 0);
+  buf.copyToChannel(ch1, 1);
+
+  sourceNode = audioCtx.createBufferSource();
+  sourceNode.buffer = buf;
+  sourceNode.connect(audioCtx.destination);
+  sourceNode.onended = () => {
+    document.getElementById('btn-stop').disabled = true;
+    log('Playback finished');
+  };
+  sourceNode.start();
+
+  document.getElementById('btn-stop').disabled = false;
+  log(`Playing ${(ch0.length / SAMPLE_RATE).toFixed(2)}s of audio`);
+}
+
+function stopPlayback() {
+  if (sourceNode) { try { sourceNode.stop(); } catch(e) {} sourceNode = null; }
+  document.getElementById('btn-stop').disabled = true;
+  log('Playback stopped');
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Waveform display
+// ─────────────────────────────────────────────────────────────
+function drawWaveform(ch0, ch1) {
+  const canvas = document.getElementById('waveform-canvas');
+  // Resize canvas to its CSS size
+  canvas.width  = canvas.offsetWidth  * devicePixelRatio;
+  canvas.height = canvas.offsetHeight * devicePixelRatio;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
+  const midY = H / 2;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = '#4ec9b0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x < W; x++) {
+    const i = Math.floor((x / W) * ch0.length);
+    const y = midY - ch0[i] * midY * 0.9;
+    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  ctx.strokeStyle = '#569cd6';
+  ctx.beginPath();
+  for (let x = 0; x < W; x++) {
+    const i = Math.floor((x / W) * ch1.length);
+    const y = midY - ch1[i] * midY * 0.9;
+    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Zero line
+  ctx.strokeStyle = '#3e3e42';
+  ctx.beginPath();
+  ctx.moveTo(0, midY); ctx.lineTo(W, midY);
+  ctx.stroke();
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────────────────────
+function allocCStr(mod, str) {
+  const enc = new TextEncoder().encode(str + '\0');
+  const ptr = mod._malloc(enc.length);
+  mod.HEAPU8.set(enc, ptr);
+  return ptr;
+}
+
+function parseSynthDefName(bytes) {
+  // SCgf format: 4 bytes magic "SCgf", 4 bytes version, 2 bytes def-count,
+  // then for each def: pascal string (1-byte length + chars)
+  const magic = String.fromCharCode(...bytes.slice(0, 4));
+  if (magic !== 'SCgf') return null;
+  const numDefs = (bytes[8] << 8) | bytes[9];
+  if (numDefs < 1) return null;
+  const nameLen = bytes[10];
+  return new TextDecoder().decode(bytes.slice(11, 11 + nameLen));
+}
+
+// ─────────────────────────────────────────────────────────────
+//  UI wiring
+// ─────────────────────────────────────────────────────────────
+document.getElementById('btn-init').addEventListener('click', initEngine);
+document.getElementById('btn-load').addEventListener('click', loadSynthDef);
+document.getElementById('btn-synth').addEventListener('click', newSynth);
+document.getElementById('btn-render').addEventListener('click', renderAndPlay);
+document.getElementById('btn-stop').addEventListener('click', stopPlayback);
+document.getElementById('btn-clear-log').addEventListener('click', () => {
+  document.getElementById('log-window').innerHTML = '';
+});
+
+const freqSlider = document.getElementById('slider-freq');
+const ampSlider  = document.getElementById('slider-amp');
+freqSlider.addEventListener('input', () => {
+  document.getElementById('lbl-freq').textContent = freqSlider.value;
+  applyControls();
+});
+ampSlider.addEventListener('input', () => {
+  document.getElementById('lbl-amp').textContent = parseFloat(ampSlider.value).toFixed(2);
+  applyControls();
+});
+
+// Auto-boot after module script loads
+window.addEventListener('load', initScsynth);
+</script>
+</body>
+</html>

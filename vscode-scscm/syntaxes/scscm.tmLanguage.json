@@ -1,0 +1,139 @@
+{
+  "scopeName": "source.scscm",
+  "name": "SCSCM",
+  "fileTypes": ["scscm"],
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#boolean" },
+    { "include": "#keyword-symbol" },
+    { "include": "#quote-char" },
+    { "include": "#quasiquote-char" },
+    { "include": "#unquote-splicing-char" },
+    { "include": "#unquote-char" },
+    { "include": "#hash-fn-shorthand" },
+    { "include": "#special-form" },
+    { "include": "#overtone-macro" },
+    { "include": "#sc-class-method" },
+    { "include": "#sc-class" },
+    { "include": "#symbol" },
+    { "include": "#paren" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.semicolon.scscm",
+      "match": ";.*$"
+    },
+
+    "string": {
+      "name": "string.quoted.double.scscm",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.scscm",
+          "match": "\\\\."
+        }
+      ]
+    },
+
+    "number": {
+      "name": "constant.numeric.scscm",
+      "match": "-?(?:0x[0-9a-fA-F]+|[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"
+    },
+
+    "boolean": {
+      "name": "constant.language.boolean.scscm",
+      "match": "(?<![\\w\\-])(?:true|false|nil)(?![\\w\\-])"
+    },
+
+    "keyword-symbol": {
+      "comment": "Scheme-style keywords: :freq :doneAction etc.",
+      "name": "constant.other.keyword.scscm",
+      "match": ":[\\w\\-][\\w\\-!?/]*"
+    },
+
+    "quote-char": {
+      "name": "keyword.operator.quote.scscm",
+      "match": "'"
+    },
+
+    "quasiquote-char": {
+      "name": "keyword.operator.quasiquote.scscm",
+      "match": "`"
+    },
+
+    "unquote-splicing-char": {
+      "name": "keyword.operator.unquote-splicing.scscm",
+      "match": "~@"
+    },
+
+    "unquote-char": {
+      "name": "keyword.operator.unquote.scscm",
+      "match": "~"
+    },
+
+    "hash-fn-shorthand": {
+      "comment": "#(…) anonymous function shorthand and %1 %2 %& arg refs",
+      "patterns": [
+        {
+          "name": "keyword.operator.hash-fn.scscm",
+          "match": "#(?=\\()"
+        },
+        {
+          "name": "variable.language.hash-fn-arg.scscm",
+          "match": "%(?:[0-9]+|&)?"
+        }
+      ]
+    },
+
+    "special-form": {
+      "comment": "Core language special forms and builtins",
+      "match": "(?<=\\()(?:fn|ꟛ|defn|defmacro|var|set!|let|if|cond|do|class|list|array|dict|quote|quasiquote|super)(?=[\\s()]|$)",
+      "name": "keyword.control.scscm"
+    },
+
+    "overtone-macro": {
+      "comment": "Overtone/SCSCM domain-specific macros",
+      "match": "(?<=\\()(?:defsynth|definst|pbind|pseq|prand|pwhite|pgeom|routine|wait|ctl|kill|now|metronome|at|in|demo|midi->hz|hz->midi|db->amp|amp->db|adsr|perc|env-line|chord|degrees->pitches|->|->>|when|unless|doseq|dotimes|collect|icollect|accumulate|comp|partial)(?=[\\s()]|$)",
+      "name": "support.function.macro.scscm"
+    },
+
+    "sc-class-method": {
+      "comment": "SuperCollider UGen / class method calls: SinOsc.ar  Env.perc  etc.",
+      "match": "\\b([A-Z][\\w]*)(\\.)(ar|kr|ir|dr|new|perc|adsr|asr|triangle|sine|pairs|get|put|play|stop|free|run|set|setn|get|getn|fill|do|collect|detect|reject|select|inject|at|add|remove|includes|size|class|isKindOf|respondsTo|postln|post|nl|value|valueArray|valueWithEnvir)\\b",
+      "captures": {
+        "1": { "name": "support.class.sc-ugen.scscm" },
+        "2": { "name": "punctuation.accessor.scscm" },
+        "3": { "name": "support.function.sc-method.scscm" }
+      }
+    },
+
+    "sc-class": {
+      "comment": "Any PascalCase identifier — SuperCollider class or UGen name",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b",
+      "name": "support.class.sc-ugen.scscm"
+    },
+
+    "symbol": {
+      "comment": "Regular lowercase/kebab-case symbols",
+      "match": "[\\w\\-!?+*/=<>&|.][\\w\\-!?+*/=<>&|.]*",
+      "name": "variable.other.scscm"
+    },
+
+    "paren": {
+      "comment": "Parentheses and brackets",
+      "patterns": [
+        {
+          "name": "punctuation.definition.list.begin.scscm",
+          "match": "[\\(\\[]"
+        },
+        {
+          "name": "punctuation.definition.list.end.scscm",
+          "match": "[\\)\\]]"
+        }
+      ]
+    }
+  }
+}

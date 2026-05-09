@@ -1,0 +1,1 @@
+../../../testsuite/wasm/scsynth.js

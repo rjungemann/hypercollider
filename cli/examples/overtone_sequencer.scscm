@@ -1,0 +1,21 @@
+; overtone_sequencer.scscm
+; Melodic sequencer in Overtone style
+
+; Simple plucked tone instrument
+(definst pluck (freq 440 amp 0.5 decay 0.5)
+  (* (Pluck.ar (WhiteNoise.ar) (Impulse.kr 0) 0.2 (/ 1.0 freq) decay 0.1)
+     amp))
+
+; Create a 140 BPM clock
+(var metro (metronome 140))
+
+; Melody as MIDI note numbers
+(var melody (list 60 62 64 65 67 65 64 62))
+
+; Play melody steps using a pattern
+(pbind
+  :instrument "pluck"
+  :midinote (pseq melody 4)
+  :dur (pseq (list 0.25 0.25 0.25 0.25) inf)
+  :amp 0.4
+  :legato 0.5)

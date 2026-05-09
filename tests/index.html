@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SuperCollider WASM Test Harness</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #00d7ff;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            color: #4ec9b0;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+
+        .status {
+            background: #252526;
+            border-left: 4px solid #00d7ff;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+        }
+
+        .status.success {
+            border-left-color: #4ec9b0;
+        }
+
+        .status.error {
+            border-left-color: #f48771;
+        }
+
+        .status.warning {
+            border-left-color: #dcdcaa;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #0098ff;
+        }
+
+        button:active {
+            background: #004a99;
+        }
+
+        button:disabled {
+            background: #444;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        input[type='range'] {
+            width: 100%;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-label {
+            font-size: 12px;
+            color: #858585;
+        }
+
+        .output {
+            background: #1e1e1e;
+            border: 1px solid #444;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 3px;
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+
+        .waveform-display {
+            width: 100%;
+            height: 200px;
+            border: 1px solid #444;
+            background: #252526;
+            margin: 10px 0;
+            border-radius: 3px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .stat-box {
+            background: #252526;
+            padding: 10px;
+            border-radius: 3px;
+            border-left: 3px solid #007acc;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #858585;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            color: #00d7ff;
+            margin-top: 5px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0 10px 0;
+            border-bottom: 1px solid #444;
+        }
+
+        .tab-button {
+            background: transparent;
+            color: #858585;
+            border: none;
+            padding: 10px 20px;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            font-family: inherit;
+        }
+
+        .tab-button.active {
+            color: #00d7ff;
+            border-bottom-color: #00d7ff;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎛️ SuperCollider WASM Test Harness</h1>
+        <p style="color: #858585; margin-bottom: 20px;">
+            Phase 1 Preview — Offline Audio Rendering
+        </p>
+
+        <!-- Status Display -->
+        <div class="status" id="status-init">
+            Loading WASM module... Please wait.
+        </div>
+
+        <!-- Main Controls -->
+        <h2>Controls</h2>
+        <div class="controls">
+            <button id="btn-test-init" disabled>✓ Test Initialization</button>
+            <button id="btn-test-render" disabled>▶ Test Render Block</button>
+            <button id="btn-test-100blocks" disabled>🎵 Render 100 Blocks</button>
+            <button id="btn-test-stress" disabled>⚡ Stress Test (10K blocks)</button>
+            <button id="btn-clear-output" disabled>🗑️ Clear Output</button>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-button active" data-tab="console">Console</button>
+            <button class="tab-button" data-tab="waveform">Waveform</button>
+            <button class="tab-button" data-tab="stats">Statistics</button>
+        </div>
+
+        <!-- Console Tab -->
+        <div class="tab-content active" id="tab-console">
+            <div class="output" id="console-output"></div>
+        </div>
+
+        <!-- Waveform Tab -->
+        <div class="tab-content" id="tab-waveform">
+            <h2>Audio Output Waveform</h2>
+            <canvas class="waveform-display" id="waveform-canvas"></canvas>
+        </div>
+
+        <!-- Statistics Tab -->
+        <div class="tab-content" id="tab-stats">
+            <h2>Engine Statistics</h2>
+            <div class="stats">
+                <div class="stat-box">
+                    <div class="stat-label">Status</div>
+                    <div class="stat-value" id="stat-status">-</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Sample Rate</div>
+                    <div class="stat-value" id="stat-samplerate">-</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Block Size</div>
+                    <div class="stat-value" id="stat-blocksize">-</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Total Blocks</div>
+                    <div class="stat-value" id="stat-totalblocks">0</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Total Samples</div>
+                    <div class="stat-value" id="stat-totalsamples">0</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Last Render Time</div>
+                    <div class="stat-value" id="stat-rendertime">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Info Section -->
+        <h2>About This Test</h2>
+        <div class="output">
+            <p>
+                This is a Phase 1 test harness for SuperCollider's WebAssembly port. It tests:
+            </p>
+            <ul style="margin: 10px 0 0 20px;">
+                <li>WASM module initialization and memory management</li>
+                <li>Offline audio block rendering</li>
+                <li>API stability under load</li>
+                <li>Output correctness (checking for NaN/Inf)</li>
+            </ul>
+            <p style="margin-top: 10px;">
+                <strong>Note:</strong> This harness does not test real-time audio playback or
+                AudioWorklet integration (Phase 2).
+            </p>
+        </div>
+    </div>
+
+    <!-- Emscripten-generated script (must load before the API wrapper) -->
+    <script src="scsynth-engine.js"></script>
+    <!-- High-level SuperColliderWasm API wrapper -->
+    <script src="scsynth.js"></script>
+
+    <!-- Test harness -->
+    <script>
+        // ====================================================================
+        // Test Harness
+        // ====================================================================
+
+        let SC = null;
+        let world = null;
+        let totalBlocks = 0;
+        let totalSamples = 0;
+
+        const console_log = document.getElementById('console-output');
+        const status_init = document.getElementById('status-init');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const line = `[${timestamp}] ${message}`;
+            const p = document.createElement('p');
+            p.textContent = line;
+
+            if (type === 'error') {
+                p.style.color = '#f48771';
+            } else if (type === 'success') {
+                p.style.color = '#4ec9b0';
+            } else if (type === 'warning') {
+                p.style.color = '#dcdcaa';
+            }
+
+            console_log.appendChild(p);
+            console_log.scrollTop = console_log.scrollHeight;
+            console.log(line);
+        }
+
+        function updateStats() {
+            if (!world) return;
+
+            document.getElementById('stat-status').textContent = 'OK';
+            document.getElementById('stat-samplerate').textContent = `${world.sampleRate} Hz`;
+            document.getElementById('stat-blocksize').textContent = `${world.blockSize} samples`;
+            document.getElementById('stat-totalblocks').textContent = totalBlocks.toLocaleString();
+            document.getElementById('stat-totalsamples').textContent = totalSamples.toLocaleString();
+        }
+
+        async function initialize() {
+            try {
+                log('Initializing SuperCollider WASM module...', 'info');
+
+                // Wait for the Emscripten module to be ready
+                if (typeof HCsynthModule === 'undefined') {
+                    throw new Error('Emscripten module not loaded. Ensure scsynth-engine.js is included.');
+                }
+
+                SC = await SuperColliderWasm.initialize('./scsynth.wasm');
+
+                log(`SuperCollider ${SC.getVersion()}`, 'success');
+                log(`Build: ${SC.getBuildInfo()}`, 'info');
+
+                // Create world
+                world = SC.createWorld(48000, 512);
+                log(`World created: ${world.sampleRate}Hz, ${world.blockSize}-sample blocks`, 'success');
+
+                // Update status
+                status_init.className = 'status success';
+                status_init.innerHTML =
+                    '✓ <strong>WASM Module Ready</strong><br/>Click "Test Initialization" to begin.';
+
+                // Enable buttons
+                document.querySelectorAll('button[id^="btn-"]').forEach((btn) => {
+                    btn.disabled = false;
+                });
+
+                updateStats();
+            } catch (error) {
+                log(`Initialization failed: ${error.message}`, 'error');
+                status_init.className = 'status error';
+                status_init.innerHTML = `✗ <strong>Failed to load WASM module</strong><br/>${error.message}`;
+            }
+        }
+
+        // Test Functions
+        async function testInit() {
+            if (!world) return;
+
+            log('--- Test: Initialization ---', 'info');
+
+            try {
+                const synthdefs = world.listSynthDefs();
+                log(`Available SynthDefs: ${synthdefs.join(', ') || '(none yet)'}`, 'info');
+
+                const status = world.getStatus();
+                log(`Engine status: ${JSON.stringify(status)}`, 'success');
+
+                log('✓ Initialization test passed', 'success');
+            } catch (error) {
+                log(`✗ Initialization test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testRender() {
+            if (!world) return;
+
+            log('--- Test: Render Single Block ---', 'info');
+
+            try {
+                const startTime = performance.now();
+                const output = world.render(2); // Stereo
+                const elapsedTime = performance.now() - startTime;
+
+                // Check for NaN/Inf
+                let hasNan = false,
+                    hasInf = false;
+                for (let i = 0; i < output.length; i++) {
+                    if (!isFinite(output[i])) {
+                        if (isNaN(output[i])) hasNan = true;
+                        if (!isFinite(output[i]) && !isNaN(output[i])) hasInf = true;
+                    }
+                }
+
+                if (hasNan) {
+                    log(`⚠ Warning: output contains NaN`, 'warning');
+                }
+                if (hasInf) {
+                    log(`⚠ Warning: output contains Inf`, 'warning');
+                }
+
+                totalBlocks++;
+                totalSamples += output.length;
+
+                log(
+                    `✓ Rendered ${output.length} samples in ${elapsedTime.toFixed(2)}ms`,
+                    'success'
+                );
+                document.getElementById('stat-rendertime').textContent = elapsedTime.toFixed(2) + 'ms';
+
+                updateStats();
+
+                // Display waveform
+                displayWaveform(output);
+            } catch (error) {
+                log(`✗ Render test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testRender100() {
+            if (!world) return;
+
+            log('--- Test: Render 100 Blocks ---', 'info');
+
+            try {
+                const startTime = performance.now();
+                const output = world.renderBlocks(100, 2);
+                const elapsedTime = performance.now() - startTime;
+
+                totalBlocks += 100;
+                totalSamples += output.length;
+
+                log(
+                    `✓ Rendered ${output.length} samples (100 blocks) in ${elapsedTime.toFixed(2)}ms`,
+                    'success'
+                );
+                log(`  Average: ${(elapsedTime / 100).toFixed(2)}ms/block`, 'info');
+
+                updateStats();
+                displayWaveform(output);
+            } catch (error) {
+                log(`✗ Render 100 test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testStress() {
+            if (!world) return;
+
+            log('--- Test: Stress (10K blocks) ---', 'info');
+
+            try {
+                const startTime = performance.now();
+                const output = world.renderBlocks(10000, 2);
+                const elapsedTime = performance.now() - startTime;
+
+                totalBlocks += 10000;
+                totalSamples += output.length;
+
+                const realtime = 10000 * world.blockSize / world.sampleRate;
+                log(
+                    `✓ Rendered ${output.length} samples (10K blocks) in ${elapsedTime.toFixed(0)}ms`,
+                    'success'
+                );
+                log(`  Wall-clock time: ${(elapsedTime / 1000).toFixed(1)}s`, 'info');
+                log(
+                    `  Audio duration: ${realtime.toFixed(1)}s (${(elapsedTime / (realtime * 1000)).toFixed(2)}x realtime)`,
+                    'info'
+                );
+
+                updateStats();
+            } catch (error) {
+                log(`✗ Stress test failed: ${error.message}`, 'error');
+            }
+        }
+
+        function displayWaveform(audioBuffer) {
+            const canvas = document.getElementById('waveform-canvas');
+            if (!canvas || !audioBuffer || audioBuffer.length === 0) return;
+
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            ctx.fillStyle = '#1e1e1e';
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.strokeStyle = '#00d7ff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+
+            const samplesPerPixel = Math.max(1, Math.floor(audioBuffer.length / width));
+
+            for (let x = 0; x < width; x++) {
+                const sampleIndex = Math.min(x * samplesPerPixel, audioBuffer.length - 1);
+                const sample = audioBuffer[sampleIndex];
+
+                // Clamp to [-1, 1] and scale to canvas height
+                const clamped = Math.max(-1, Math.min(1, sample));
+                const y = (height / 2) * (1 - clamped);
+
+                if (x === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+
+            ctx.stroke();
+
+            // Draw center line
+            ctx.strokeStyle = '#444';
+            ctx.beginPath();
+            ctx.moveTo(0, height / 2);
+            ctx.lineTo(width, height / 2);
+            ctx.stroke();
+        }
+
+        function clearOutput() {
+            console_log.innerHTML = '';
+            log('Output cleared.', 'info');
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab-button').forEach((button) => {
+            button.addEventListener('click', (e) => {
+                const tabName = e.target.dataset.tab;
+
+                // Update buttons
+                document.querySelectorAll('.tab-button').forEach((b) => b.classList.remove('active'));
+                e.target.classList.add('active');
+
+                // Update content
+                document.querySelectorAll('.tab-content').forEach((tc) => tc.classList.remove('active'));
+                document.getElementById(`tab-${tabName}`).classList.add('active');
+            });
+        });
+
+        // Button event listeners
+        document.getElementById('btn-test-init').addEventListener('click', testInit);
+        document.getElementById('btn-test-render').addEventListener('click', testRender);
+        document.getElementById('btn-test-100blocks').addEventListener('click', testRender100);
+        document.getElementById('btn-test-stress').addEventListener('click', testStress);
+        document.getElementById('btn-clear-output').addEventListener('click', clearOutput);
+
+        // Initialize on page load
+        window.addEventListener('load', initialize);
+    </script>
+</body>
+</html>

@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperCollider WASM Web Worker Test</title>
+  <style>
+    body {
+      font-family: 'Monaco', 'Courier New', monospace;
+      max-width: 1000px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 { color: #333; }
+    .section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .log-window {
+      background: #000;
+      color: #0f0;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.4;
+      max-height: 250px;
+      overflow-y: auto;
+      margin: 10px 0;
+      font-family: 'Courier New', monospace;
+    }
+    .log-entry {
+      margin: 2px 0;
+    }
+    .log-info { color: #0f0; }
+    .log-warn { color: #ff0; }
+    .log-error { color: #f00; }
+    button {
+      background: #007acc;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 8px;
+      margin-bottom: 8px;
+    }
+    button:hover { background: #005a9e; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .status-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    .status-ready { background: #0f0; }
+    .status-loading { background: #ff0; animation: pulse 1s infinite; }
+    .status-error { background: #f00; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin-top: 15px;
+    }
+    .stat-box {
+      background: #f9f9f9;
+      padding: 12px;
+      border-radius: 4px;
+      border-left: 4px solid #007acc;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #666;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .stat-value {
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+
+<h1>SuperCollider WASM Web Worker Test</h1>
+
+<div class="section">
+  <h2>Status</h2>
+  <div>
+    <span class="status-indicator loading" id="status-indicator"></span>
+    <span id="status-text">Initializing worker...</span>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Controls</h2>
+  <button id="btn-load-synthdef" disabled>Load SynthDef</button>
+  <button id="btn-create-synth" disabled>Create Synth</button>
+  <button id="btn-render-test" disabled>Render Audio</button>
+  <button id="btn-clear-log">Clear Log</button>
+</div>
+
+<div class="section">
+  <h2>Log Output</h2>
+  <div class="log-window" id="log-window"></div>
+</div>
+
+<div class="section" id="results-section" style="display: none;">
+  <h2>Render Results</h2>
+  <div class="stats" id="stats-container"></div>
+</div>
+
+<script>
+  class SCWasmWorkerTest {
+    constructor() {
+      this.worker = null;
+      this.synthId = 1;
+      this.synthdefBuffer = null;
+      this.synthdefName = 'help_out';
+
+      this._initWorker();
+      this._setupUI();
+    }
+
+    _initWorker() {
+      this._log('Creating Web Worker...', 'info');
+
+      try {
+        this.worker = new Worker('sc_wasm_worker.js');
+        this.worker.onmessage = (event) => this._handleWorkerMessage(event.data);
+        this.worker.onerror = (error) => {
+          this._setStatus(`Worker error: ${error.message}`, 'error');
+          this._log(`Worker error: ${error.message}`, 'error');
+        };
+
+        // Tell worker to initialize WASM
+        const wasmPath = new URL('./scsynth.js', window.location.href).href;
+        this._log(`WASM path: ${wasmPath}`, 'info');
+        this.worker.postMessage({ type: 'init-wasm', wasmPath });
+      } catch (err) {
+        this._setStatus(`Failed to create worker: ${err.message}`, 'error');
+        this._log(`Worker creation failed: ${err.message}`, 'error');
+      }
+    }
+
+    _setupUI() {
+      document.getElementById('btn-load-synthdef').addEventListener('click', () => this._loadSynthDef());
+      document.getElementById('btn-create-synth').addEventListener('click', () => this._createSynth());
+      document.getElementById('btn-render-test').addEventListener('click', () => this._renderAudio());
+      document.getElementById('btn-clear-log').addEventListener('click', () => this._clearLog());
+    }
+
+    _handleWorkerMessage(msg) {
+      if (!msg.type) return;
+
+      switch (msg.type) {
+        case 'ready':
+          this._setStatus('WASM Ready', 'ready');
+          document.getElementById('btn-load-synthdef').disabled = false;
+          this._log(`WASM ready: SR=${msg.sampleRate}, blockSize=${msg.blockSize}`, 'info');
+          break;
+
+        case 'synthdef-loaded':
+          this._log(`SynthDef loaded: ${msg.name}`, 'info');
+          document.getElementById('btn-create-synth').disabled = false;
+          break;
+
+        case 'synth-new':
+          this._log(`Synth created: id=${msg.synthId}, name=${msg.synthName}`, 'info');
+          document.getElementById('btn-render-test').disabled = false;
+          break;
+
+        case 'render-result':
+          this._displayRenderResult(msg);
+          break;
+
+        case 'error':
+          this._log(`Worker error: ${msg.error}`, 'error');
+          this._setStatus(`Error: ${msg.error}`, 'error');
+          break;
+
+        case 'log':
+        default:
+          // Worker logs appear in browser console
+          console.log('[Worker message]', msg);
+      }
+    }
+
+    _loadSynthDef() {
+      this._log('Loading SynthDef...', 'info');
+
+      // Fetch the pre-compiled SynthDef
+      fetch('../../../testsuite/server/supernova/help_out.scsyndef')
+        .then(r => r.arrayBuffer())
+        .then(buf => {
+          this.synthdefBuffer = buf;
+          this._log(`Fetched SynthDef: ${(buf.byteLength / 1024).toFixed(1)}KB`, 'info');
+          this.worker.postMessage({
+            type: 'load-synthdef',
+            data: buf,
+            name: this.synthdefName,
+          });
+        })
+        .catch(err => {
+          this._log(`Fetch failed: ${err.message}`, 'warn');
+          // Try with a default empty synthdef
+          this.worker.postMessage({
+            type: 'load-synthdef',
+            data: new ArrayBuffer(0),
+            name: 'silence',
+          });
+        });
+    }
+
+    _createSynth() {
+      this._log(`Creating synth from ${this.synthdefName}...`, 'info');
+      this.worker.postMessage({
+        type: 'synth-new',
+        synthName: this.synthdefName,
+        synthId: this.synthId++,
+        args: { freq: 440 },
+      });
+    }
+
+    _renderAudio() {
+      this._log('Rendering audio block (512 samples, stereo)...', 'info');
+      this.worker.postMessage({
+        type: 'render',
+        numSamples: 512,
+        numChannels: 2,
+      });
+    }
+
+    _displayRenderResult(result) {
+      const { samples, maxLevel } = result;
+      const numSamples = samples.length / 2; // stereo
+      const numChannels = 2;
+
+      // Compute RMS
+      let sumSq = 0;
+      for (let i = 0; i < samples.length; i++) {
+        sumSq += samples[i] * samples[i];
+      }
+      const rms = Math.sqrt(sumSq / samples.length);
+
+      this._log(
+        `Rendered: ${numSamples} samples, ${numChannels} ch | Max=${maxLevel.toFixed(6)}, RMS=${rms.toFixed(6)}`,
+        'info'
+      );
+
+      // Display stats
+      const statsHtml = `
+        <div class="stat-box">
+          <div class="stat-label">Max Level</div>
+          <div class="stat-value">${maxLevel.toFixed(6)}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">RMS Level</div>
+          <div class="stat-value">${rms.toFixed(6)}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Samples</div>
+          <div class="stat-value">${numSamples}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Channels</div>
+          <div class="stat-value">${numChannels}</div>
+        </div>
+      `;
+
+      document.getElementById('stats-container').innerHTML = statsHtml;
+      document.getElementById('results-section').style.display = 'block';
+
+      // Log success
+      if (maxLevel > 0.001) {
+        this._log('✓ Non-silent output detected', 'info');
+      } else {
+        this._log('⚠ Output is silence', 'warn');
+      }
+    }
+
+    _setStatus(text, status) {
+      document.getElementById('status-text').textContent = text;
+      const indicator = document.getElementById('status-indicator');
+      indicator.className = `status-indicator status-${status}`;
+    }
+
+    _log(msg, level = 'info') {
+      const logWindow = document.getElementById('log-window');
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${level}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logWindow.appendChild(entry);
+      logWindow.scrollTop = logWindow.scrollHeight;
+    }
+
+    _clearLog() {
+      document.getElementById('log-window').innerHTML = '';
+    }
+  }
+
+  // Initialize on page load
+  window.addEventListener('load', () => {
+    new SCWasmWorkerTest();
+  });
+</script>
+
+</body>
+</html>

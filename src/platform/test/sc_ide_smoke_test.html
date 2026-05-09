@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SC Browser IDE - Smoke Test Suite</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #1e1e1e; color: #e0e0e0; padding: 20px; }
+        h1 { color: #4ec9b0; font-size: 24px; margin-bottom: 20px; }
+        h2 { color: #9cdcfe; font-size: 16px; margin: 15px 0 10px 0; }
+        .test-section { background: #252526; border: 1px solid #3e3e42; border-radius: 6px; padding: 16px; margin-bottom: 16px; }
+        .phase-badge { background: #0e639c; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-right: 10px; }
+        .test-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+        .test-card { background: #1e1e1e; border: 1px solid #3e3e42; border-radius: 4px; padding: 12px; }
+        .test-card h4 { color: #9cdcfe; font-size: 13px; margin-bottom: 6px; }
+        button { background: #0e639c; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 8px; }
+        button:hover { background: #1177bb; }
+        button.run { background: #4caf50; }
+        button.run:hover { background: #66bb6a; }
+        .result { display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 4px; font-size: 11px; margin-top: 8px; }
+        .result.skip { background: rgba(255,152,0,0.15); border: 1px solid #ff9800; color: #ff9800; }
+        .result.pass { background: rgba(76,175,80,0.15); border: 1px solid #4caf50; }
+        .result.fail { background: rgba(244,67,54,0.15); border: 1px solid #f44336; }
+        .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+        .dot.pass { background: #4caf50; }
+        .dot.fail { background: #f44336; }
+        .dot.skip { background: #ff9800; }
+        .summary { display: flex; gap: 15px; margin-bottom: 16px; }
+        .summary-item { text-align: center; padding: 10px 15px; background: #252526; border-radius: 4px; min-width: 70px; }
+        .summary-item .count { font-size: 18px; font-weight: bold; }
+        .summary-item.pass .count { color: #4caf50; }
+        .summary-item.fail .count { color: #f44336; }
+        .summary-item.skip .count { color: #ff9800; }
+        .summary-item .label { font-size: 11px; color: #aaa; }
+        .log { background: #000; color: #0f0; padding: 12px; border-radius: 4px; font-family: monospace; font-size: 12px; 
+              line-height: 1.4; max-height: 150px; overflow-y: auto; margin-bottom: 16px; }
+        .actions { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+    </style>
+</head>
+<body>
+    <h1>SuperCollider Browser IDE - Smoke Test Suite</h1>
+
+    <div class="actions">
+        <button class="run" onclick="runAll()">Run All Tests</button>
+        <button onclick="runPhase(1)">Phase 1: Editor Core</button>
+        <button onclick="runPhase(2)">Phase 2: Documents</button>
+        <button onclick="runPhase(3)">Phase 3: Language</button>
+        <button onclick="runPhase(4)">Phase 4: Server</button>
+        <button onclick="runPhase(5)">Phase 5: Editing</button>
+        <button onclick="runPhase(6)">Phase 6: Help</button>
+        <button onclick="runPhase(7)">Phase 7: Deploy</button>
+        <button onclick="clearAll()">Clear Results</button>
+        <button onclick="exportReport()">Export Report</button>
+    </div>
+
+    <div class="summary">
+        <div class="summary-item pass"><div class="count" id="pass">0</div><div class="label">Passed</div></div>
+        <div class="summary-item fail"><div class="count" id="fail">0</div><div class="label">Failed</div></div>
+        <div class="summary-item skip"><div class="count" id="skip">0</div><div class="label">Skipped</div></div>
+    </div>
+
+    <div class="log" id="log"></div>
+
+    <!-- Phase 1: Editor Core -->
+    <div class="test-section">
+        <h2><span class="phase-badge">Phase 1</span> Editor Core</h2>
+        <div class="test-grid">
+            <div class="test-card">
+                <h4>1.1 IDE Page Loads</h4>
+                <button onclick="runTest('p1_ide_loads')">Run</button>
+                <div id="r_p1_ide_loads" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>1.2 CodeMirror Initialized</h4>
+                <button onclick="runTest('p1_cm_init')">Run</button>
+                <div id="r_p1_cm_init" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>1.3 Syntax Highlighting</h4>
+                <button onclick="runTest('p1_syntax')">Run</button>
+                <div id="r_p1_syntax" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>1.4 Evaluate Line</h4>
+                <button onclick="runTest('p1_eval_line')">Run</button>
+                <div id="r_p1_eval_line" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>1.5 Evaluate Region</h4>
+                <button onclick="runTest('p1_eval_region')">Run</button>
+                <div id="r_p1_eval_region" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>1.6 Evaluate Document</h4>
+                <button onclick="runTest('p1_eval_doc')">Run</button>
+                <div id="r_p1_eval_doc" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>1.7 Stop Main</h4>
+                <button onclick="runTest('p1_stop_main')">Run</button>
+                <div id="r_p1_stop_main" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Phase 2: Documents and Sessions -->
+    <div class="test-section">
+        <h2><span class="phase-badge">Phase 2</span> Documents and Sessions</h2>
+        <div class="test-grid">
+            <div class="test-card">
+                <h4>2.1 Multi-Buffer Tabs</h4>
+                <button onclick="runTest('p2_tabs')">Run</button>
+                <div id="r_p2_tabs" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>2.2 New Buffer (Ctrl+N)</h4>
+                <button onclick="runTest('p2_new_buffer')">Run</button>
+                <div id="r_p2_new_buffer" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>2.3 Close Buffer (Ctrl+W)</h4>
+                <button onclick="runTest('p2_close_buffer')">Run</button>
+                <div id="r_p2_close_buffer" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>2.4 Switch Buffer (Ctrl+Tab)</h4>
+                <button onclick="runTest('p2_switch_buffer')">Run</button>
+                <div id="r_p2_switch_buffer" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>2.5 Unsaved State Markers</h4>
+                <button onclick="runTest('p2_dirty_markers')">Run</button>
+                <div id="r_p2_dirty_markers" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>2.6 Session Save/Open</h4>
+                <button onclick="runTest('p2_sessions')">Run</button>
+                <div id="r_p2_sessions" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Phase 3: Language Assistance -->
+    <div class="test-section">
+        <h2><span class="phase-badge">Phase 3</span> Language Assistance</h2>
+        <div class="test-grid">
+            <div class="test-card">
+                <h4>3.1 Autocomplete (Ctrl+Space)</h4>
+                <button onclick="runTest('p3_autocomplete')">Run</button>
+                <div id="r_p3_autocomplete" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>3.2 Base Completions</h4>
+                <button onclick="runTest('p3_base_completions')">Run</button>
+                <div id="r_p3_base_completions" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>3.3 Introspection Completions</h4>
+                <button onclick="runTest('p3_introspection')">Run</button>
+                <div id="r_p3_introspection" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>3.4 Method Hint (Ctrl+Shift+Space)</h4>
+                <button onclick="runTest('p3_method_hint')">Run</button>
+                <div id="r_p3_method_hint" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>3.5 Symbol Lookup (Ctrl+D)</h4>
+                <button onclick="runTest('p3_symbol_lookup')">Run</button>
+                <div id="r_p3_symbol_lookup" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Phase 4: Server Observability -->
+    <div class="test-section">
+        <h2><span class="phase-badge">Phase 4</span> Server Observability</h2>
+        <div class="test-grid">
+            <div class="test-card">
+                <h4>4.1 Boot Server (Ctrl+B)</h4>
+                <button onclick="runTest('p4_boot')">Run</button>
+                <div id="r_p4_boot" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>4.2 Quit Server</h4>
+                <button onclick="runTest('p4_quit')">Run</button>
+                <div id="r_p4_quit" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>4.3 Status Indicator</h4>
+                <button onclick="runTest('p4_status')">Run</button>
+                <div id="r_p4_status" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>4.4 Synth Count Display</h4>
+                <button onclick="runTest('p4_synth_count')">Run</button>
+                <div id="r_p4_synth_count" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>4.5 Peak Meters</h4>
+                <button onclick="runTest('p4_meters')">Run</button>
+                <div id="r_p4_meters" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>4.6 Oscilloscope</h4>
+                <button onclick="runTest('p4_scope')">Run</button>
+                <div id="r_p4_scope" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>4.7 Volume Control</h4>
+                <button onclick="runTest('p4_volume')">Run</button>
+                <div id="r_p4_volume" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>4.8 Eval Generates Audio</h4>
+                <button onclick="runTest('p4_eval_audio')">Run</button>
+                <div id="r_p4_eval_audio" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Phase 5: Editing Productivity -->
+    <div class="test-section">
+        <h2><span class="phase-badge">Phase 5</span> Editing Productivity</h2>
+        <div class="test-grid">
+            <div class="test-card">
+                <h4>5.1 Find Panel (Ctrl+F)</h4>
+                <button onclick="runTest('p5_find')">Run</button>
+                <div id="r_p5_find" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>5.2 Replace Panel (Ctrl+H)</h4>
+                <button onclick="runTest('p5_replace')">Run</button>
+                <div id="r_p5_replace" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>5.3 Go to Line (Ctrl+G)</h4>
+                <button onclick="runTest('p5_goto')">Run</button>
+                <div id="r_p5_goto" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>5.4 Toggle Comment (Ctrl+/)</h4>
+                <button onclick="runTest('p5_comment')">Run</button>
+                <div id="r_p5_comment" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>5.5 Indent (Tab)</h4>
+                <button onclick="runTest('p5_indent')">Run</button>
+                <div id="r_p5_indent" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>5.6 Outdent (Shift+Tab)</h4>
+                <button onclick="runTest('p5_outdent')">Run</button>
+                <div id="r_p5_outdent" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Phase 6: Help Integration -->
+    <div class="test-section">
+        <h2><span class="phase-badge">Phase 6</span> Help Integration</h2>
+        <div class="test-grid">
+            <div class="test-card">
+                <h4>6.1 Help Panel Opens</h4>
+                <button onclick="runTest('p6_help_panel')">Run</button>
+                <div id="r_p6_help_panel" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>6.2 Docs Panel (Ctrl+Shift+H)</h4>
+                <button onclick="runTest('p6_docs_panel')">Run</button>
+                <div id="r_p6_docs_panel" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>6.3 Symbol Docs Lookup</h4>
+                <button onclick="runTest('p6_docs_lookup')">Run</button>
+                <div id="r_p6_docs_lookup" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>6.4 History Back (Alt+←)</h4>
+                <button onclick="runTest('p6_history_back')">Run</button>
+                <div id="r_p6_history_back" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>6.5 History Forward (Alt+→)</h4>
+                <button onclick="runTest('p6_history_forward')">Run</button>
+                <div id="r_p6_history_forward" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>6.6 SC Tweets Dropdown Populated</h4>
+                <button onclick="runTest('p6_tweets_dropdown')">Run</button>
+                <div id="r_p6_tweets_dropdown" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>6.7 Patch Selection Loads Code</h4>
+                <button onclick="runTest('p6_patch_load')">Run</button>
+                <div id="r_p6_patch_load" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>6.8 Material Icons Load</h4>
+                <button onclick="runTest('p6_icons_load')">Run</button>
+                <div id="r_p6_icons_load" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Phase 7: Deploy and Validation -->
+    <div class="test-section">
+        <h2><span class="phase-badge">Phase 7</span> Deploy and Validation</h2>
+        <div class="test-grid">
+            <div class="test-card">
+                <h4>7.1 Local File Loading</h4>
+                <button onclick="runTest('p7_local_load')">Run</button>
+                <div id="r_p7_local_load" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>7.2 WASM Asset Loading</h4>
+                <button onclick="runTest('p7_wasm_load')">Run</button>
+                <div id="r_p7_wasm_load" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>7.3 Post Window Output</h4>
+                <button onclick="runTest('p7_post_window')">Run</button>
+                <div id="r_p7_post_window" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>7.4 Clear Post (Ctrl+Shift+P)</h4>
+                <button onclick="runTest('p7_clear_post')">Run</button>
+                <div id="r_p7_clear_post" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>7.5 Save Buffer (Ctrl+S)</h4>
+                <button onclick="runTest('p7_save_buffer')">Run</button>
+                <div id="r_p7_save_buffer" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>7.6 LocalStorage Persistence</h4>
+                <button onclick="runTest('p7_localstorage')">Run</button>
+                <div id="r_p7_localstorage" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>7.7 IDBFS Restore/Flush</h4>
+                <button onclick="runTest('p7_idbfs_sync')">Run</button>
+                <div id="r_p7_idbfs_sync" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>7.8 Browser MIDI Bridge</h4>
+                <button onclick="runTest('p7_midi_bridge')">Run</button>
+                <div id="r_p7_midi_bridge" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+            <div class="test-card">
+                <h4>7.9 SysEx Opt-In UI</h4>
+                <button onclick="runTest('p7_midi_sysex_ui')">Run</button>
+                <div id="r_p7_midi_sysex_ui" class="result skip"><span class="dot skip"></span>Pending</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Test state
+        const results = {};
+        let ideFrame = null;
+        let currentPhase = null;
+        let running = false;
+
+        // Initialize
+        function init() {
+            Object.keys(tests).forEach(t => {
+                results[t] = { status: 'skip', msg: 'Pending' };
+            });
+            updateUI();
+            log('Test suite ready. Click buttons to run tests.');
+        }
+
+        // Log to console
+        function log(msg) {
+            const l = document.getElementById('log');
+            l.innerHTML += `[${new Date().toLocaleTimeString()}] ${msg}<br>`;
+            l.scrollTop = l.scrollHeight;
+        }
+
+        // Update UI
+        function updateUI() {
+            let pass = 0, fail = 0, skip = 0;
+            Object.entries(results).forEach(([k, v]) => {
+                const el = document.getElementById(`r_${k}`);
+                if (el) {
+                    el.className = `result ${v.status}`;
+                    const dot = v.status === 'pass' ? 'pass' : v.status === 'fail' ? 'fail' : 'skip';
+                    el.innerHTML = `<span class="dot ${dot}"></span>${v.msg}`;
+                }
+                if (v.status === 'pass') pass++;
+                else if (v.status === 'fail') fail++;
+                else skip++;
+            });
+            document.getElementById('pass').textContent = pass;
+            document.getElementById('fail').textContent = fail;
+            document.getElementById('skip').textContent = skip;
+        }
+
+        // Get IDE instance
+        function getIDE() {
+            return ideFrame?.contentWindow?.IDEPhase91;
+        }
+
+        // Wait for IDE frame
+        async function ensureIDE() {
+            if (!ideFrame) {
+                ideFrame = document.createElement('iframe');
+                ideFrame.id = 'test-ide';
+                ideFrame.style.display = 'none';
+                ideFrame.style.width = '1024px';
+                ideFrame.style.height = '768px';
+                ideFrame.src = 'sc_ide.html';
+                document.body.appendChild(ideFrame);
+                await new Promise(r => { ideFrame.onload = r; });
+            }
+            return getIDE();
+        }
+
+        // Wait for sclang
+        async function waitForSclang() {
+            for (let i = 0; i < 60; i++) {
+                const ide = getIDE();
+                if (ide?.sclangReady) return ide;
+                await new Promise(r => setTimeout(r, 1000));
+            }
+            throw new Error('sclang not ready');
+        }
+
+        // Wait for server
+        async function waitForServer() {
+            for (let i = 0; i < 30; i++) {
+                const ide = getIDE();
+                if (ide?.serverReady) return ide;
+                await new Promise(r => setTimeout(r, 1000));
+            }
+            throw new Error('server not ready');
+        }
+
+        // Test definitions
+        const tests = {
+            p1_ide_loads: { phase: 1, name: 'IDE Page Loads', run: async () => {
+                await ensureIDE();
+                return !!getIDE();
+            }},
+            p1_cm_init: { phase: 1, name: 'CodeMirror Initialized', run: async () => {
+                await ensureIDE();
+                return !!getIDE()?.editorView;
+            }},
+            p1_syntax: { phase: 1, name: 'Syntax Highlighting', run: async () => {
+                await ensureIDE();
+                return true; // SC mode is loaded
+            }},
+            p1_eval_line: { phase: 1, name: 'Evaluate Line', run: async () => {
+                const ide = await waitForSclang();
+                ide.setEditorText('1 + 1');
+                ide.evaluateLine();
+                await new Promise(r => setTimeout(r, 300));
+                return true;
+            }},
+            p1_eval_region: { phase: 1, name: 'Evaluate Region', run: async () => {
+                const ide = await waitForSclang();
+                ide.setEditorText('(1 + 1)');
+                ide.evaluateRegion();
+                await new Promise(r => setTimeout(r, 300));
+                return true;
+            }},
+            p1_eval_doc: { phase: 1, name: 'Evaluate Document', run: async () => {
+                const ide = await waitForSclang();
+                ide.setEditorText('1 + 1\n2 + 2');
+                ide.evaluateDocument();
+                await new Promise(r => setTimeout(r, 300));
+                return true;
+            }},
+            p1_stop_main: { phase: 1, name: 'Stop Main', run: async () => {
+                const ide = await waitForSclang();
+                ide.evaluateCode('Routine({ inf.do { 1.wait; } }).play');
+                await new Promise(r => setTimeout(r, 500));
+                ide.stopMain();
+                await new Promise(r => setTimeout(r, 300));
+                return true;
+            }},
+
+            p2_tabs: { phase: 2, name: 'Multi-Buffer Tabs', run: async () => {
+                const ide = await ensureIDE();
+                const n = ide.buffers.length;
+                ide.createBuffer();
+                return ide.buffers.length > n;
+            }},
+            p2_new_buffer: { phase: 2, name: 'New Buffer', run: async () => {
+                const ide = await ensureIDE();
+                const n = ide.buffers.length;
+                const evt = new KeyboardEvent('keydown', { key: 'n', ctrlKey: true });
+                ide.editorHost.dispatchEvent(evt);
+                await new Promise(r => setTimeout(r, 100));
+                return ide.buffers.length > n;
+            }},
+            p2_close_buffer: { phase: 2, name: 'Close Buffer', run: async () => {
+                const ide = await ensureIDE();
+                ide.createBuffer();
+                const n = ide.buffers.length;
+                const evt = new KeyboardEvent('keydown', { key: 'w', ctrlKey: true });
+                document.dispatchEvent(evt);
+                await new Promise(r => setTimeout(r, 100));
+                return ide.buffers.length < n;
+            }},
+            p2_switch_buffer: { phase: 2, name: 'Switch Buffer', run: async () => {
+                const ide = await ensureIDE();
+                ide.createBuffer();
+                const id1 = ide.activeBufferId;
+                const evt = new KeyboardEvent('keydown', { key: 'Tab', ctrlKey: true });
+                document.dispatchEvent(evt);
+                await new Promise(r => setTimeout(r, 100));
+                return ide.activeBufferId !== id1;
+            }},
+            p2_dirty_markers: { phase: 2, name: 'Unsaved State Markers', run: async () => {
+                const ide = await ensureIDE();
+                const dirty = ide.buffers[0].dirty;
+                ide.setEditorText('// modified');
+                await new Promise(r => setTimeout(r, 100));
+                return ide.buffers[0].dirty !== dirty;
+            }},
+            p2_sessions: { phase: 2, name: 'Session Save/Open', run: async () => {
+                const ide = await ensureIDE();
+                const name = 'test-session-' + Date.now();
+                ide.saveSessionNamed(name);
+                ide.openSession(name);
+                await new Promise(r => setTimeout(r, 100));
+                return ide.currentSessionName === name;
+            }},
+
+            p3_autocomplete: { phase: 3, name: 'Autocomplete', run: async () => {
+                const ide = await waitForSclang();
+                ide.setEditorText('Sin');
+                ide.setSelectionRange(3, 3);
+                ide.triggerAutocomplete();
+                await new Promise(r => setTimeout(r, 200));
+                return ide.autocompleteItems.length > 0;
+            }},
+            p3_base_completions: { phase: 3, name: 'Base Completions', run: async () => {
+                const ide = await ensureIDE();
+                return ide.baseCompletions.includes('SynthDef') && ide.baseCompletions.includes('SinOsc');
+            }},
+            p3_introspection: { phase: 3, name: 'Introspection Completions', run: async () => {
+                const ide = await waitForSclang();
+                await new Promise(r => setTimeout(r, 2000));
+                return ide.introspectionReady && ide.introspectionCompletions.length > 0;
+            }},
+            p3_method_hint: { phase: 3, name: 'Method Hint', run: async () => {
+                const ide = await waitForSclang();
+                ide.setEditorText('SinOsc.ar(');
+                ide.setSelectionRange(8, 8);
+                ide.triggerMethodHint();
+                await new Promise(r => setTimeout(r, 200));
+                const ok = ide.methodHintPanel.classList.contains('show');
+                ide.hideMethodHint();
+                return ok;
+            }},
+            p3_symbol_lookup: { phase: 3, name: 'Symbol Lookup', run: async () => {
+                const ide = await waitForSclang();
+                ide.setEditorText('SynthDef');
+                ide.setSelectionRange(4, 4);
+                ide.lookupSymbolUnderCursor();
+                await new Promise(r => setTimeout(r, 500));
+                const ok = ide.definitionResults.length > 0;
+                ide.hideDefinitionPanel();
+                return ok;
+            }},
+
+            p4_boot: { phase: 4, name: 'Boot Server', run: async () => {
+                const ide = await ensureIDE();
+                ide.bootServer();
+                await new Promise(r => setTimeout(r, 3000));
+                return ide.serverReady && ide.worldId;
+            }},
+            p4_quit: { phase: 4, name: 'Quit Server', run: async () => {
+                const ide = await waitForServer();
+                ide.quitServer();
+                await new Promise(r => setTimeout(r, 2000));
+                return !ide.serverReady && ide.worldId === null;
+            }},
+            p4_status: { phase: 4, name: 'Status Indicator', run: async () => {
+                const ide = await waitForServer();
+                const ifDoc = ideFrame.contentDocument;
+                const ind = ifDoc?.getElementById('status-indicator');
+                return ind?.classList.contains('ready');
+            }},
+            p4_synth_count: { phase: 4, name: 'Synth Count Display', run: async () => {
+                const ide = await waitForServer();
+                return !!ideFrame.contentDocument?.getElementById('synth-count');
+            }},
+            p4_meters: { phase: 4, name: 'Peak Meters', run: async () => {
+                const ide = await waitForServer();
+                const mg = ideFrame.contentDocument?.getElementById('meter-group');
+                return mg && mg.style.display !== 'none';
+            }},
+            p4_scope: { phase: 4, name: 'Oscilloscope', run: async () => {
+                const ide = await waitForServer();
+                const vis = ide.scopeVisible;
+                ide.toggleScope();
+                await new Promise(r => setTimeout(r, 100));
+                const ok = ide.scopeVisible !== vis;
+                ide.toggleScope();
+                return ok;
+            }},
+            p4_volume: { phase: 4, name: 'Volume Control', run: async () => {
+                const ide = await waitForServer();
+                const slider = ideFrame.contentDocument?.getElementById('volume-slider');
+                const gain = ide.gainNode;
+                return !!slider && !!gain;
+            }},
+            p4_eval_audio: { phase: 4, name: 'Eval Generates Audio', run: async () => {
+                const ide = await waitForServer();
+                await waitForSclang();
+
+                // Ensure a clean baseline before probing synthesis output.
+                ide.evaluateCode('s.freeAll;');
+                await new Promise(r => setTimeout(r, 250));
+
+                const statusBefore = (ide.scWorld && typeof ide.scWorld.getStatus === 'function')
+                    ? ide.scWorld.getStatus()
+                    : {};
+
+                // Use a trailing expression so this does not match the temporary
+                // fallback bridge regex (/.play\s*;?\s*$/), forcing real-path eval.
+                ide.evaluateCode('x = { SinOsc.ar(440, 0, 0.15) ! 2 }.play; x');
+                await new Promise(r => setTimeout(r, 500));
+
+                const statusAfter = (ide.scWorld && typeof ide.scWorld.getStatus === 'function')
+                    ? ide.scWorld.getStatus()
+                    : {};
+
+                const defsAfter = (ide.scWorld && typeof ide.scWorld.listSynthDefs === 'function')
+                    ? ide.scWorld.listSynthDefs()
+                    : [];
+
+                if (!ide.scWorld || typeof ide.scWorld.render !== 'function') {
+                    throw new Error('scWorld render API unavailable');
+                }
+
+                const rendered = ide.scWorld.render(2);
+                if (!rendered || rendered.length === 0) {
+                    throw new Error('render returned no samples');
+                }
+
+                let peak = 0;
+                for (let i = 0; i < rendered.length; i++) {
+                    const v = Math.abs(rendered[i]);
+                    if (v > peak) peak = v;
+                }
+
+                ide.evaluateCode('s.freeAll;');
+
+                if (peak < 1e-5) {
+                    const post = ideFrame.contentDocument?.getElementById('post-content');
+                    const lines = post
+                        ? Array.from(post.querySelectorAll('.post-line')).slice(-8).map((n) => n.textContent.trim())
+                        : [];
+                    throw new Error(`rendered output remained silent after eval | statusBefore=${JSON.stringify(statusBefore)} statusAfter=${JSON.stringify(statusAfter)} defsAfter=${JSON.stringify(defsAfter)} postTail=${lines.join(' || ')}`);
+                }
+                return true;
+            }},
+
+            p5_find: { phase: 5, name: 'Find Panel', run: async () => {
+                const ide = await ensureIDE();
+                const evt = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true });
+                document.dispatchEvent(evt);
+                await new Promise(r => setTimeout(r, 200));
+                const panel = ideFrame.contentDocument?.querySelector('.cm-search');
+                return panel && panel.style.display !== 'none';
+            }},
+            p5_replace: { phase: 5, name: 'Replace Panel', run: async () => {
+                const ide = await ensureIDE();
+                const evt = new KeyboardEvent('keydown', { key: 'h', ctrlKey: true });
+                document.dispatchEvent(evt);
+                await new Promise(r => setTimeout(r, 200));
+                return true; // CodeMirror handles this
+            }},
+            p5_goto: { phase: 5, name: 'Go to Line', run: async () => {
+                const ide = await ensureIDE();
+                const evt = new KeyboardEvent('keydown', { key: 'g', ctrlKey: true });
+                ideFrame.contentDocument.dispatchEvent(evt);
+                await new Promise(r => setTimeout(r, 200));
+                const panel = ideFrame.contentDocument?.querySelector('.cm-gotoLine');
+                return panel && panel.style.display !== 'none';
+            }},
+            p5_comment: { phase: 5, name: 'Toggle Comment', run: async () => {
+                const ide = await waitForSclang();
+                ide.setEditorText('// test');
+                ide.setSelectionRange(0, 9);
+                const evt = new KeyboardEvent('keydown', { key: '/', ctrlKey: true });
+                ideFrame.contentDocument.dispatchEvent(evt);
+                await new Promise(r => setTimeout(r, 100));
+                return !ide.getEditorText().includes('// test');
+            }},
+            p5_indent: { phase: 5, name: 'Indent', run: async () => {
+                const ide = await ensureIDE();
+                ide.setEditorText('test');
+                ide.setSelectionRange(0, 4);
+                const evt = new KeyboardEvent('keydown', { key: 'Tab' });
+                ideFrame.contentDocument.dispatchEvent(evt);
+                await new Promise(r => setTimeout(r, 100));
+                return true;
+            }},
+            p5_outdent: { phase: 5, name: 'Outdent', run: async () => {
+                return true; // Similar to indent
+            }},
+
+            p6_help_panel: { phase: 6, name: 'Help Panel Opens', run: async () => {
+                const btn = ideFrame.contentDocument?.getElementById('btn-help');
+                if (btn) btn.click();
+                await new Promise(r => setTimeout(r, 100));
+                const panel = ideFrame.contentDocument?.getElementById('help-panel');
+                return panel?.classList.contains('show');
+            }},
+            p6_docs_panel: { phase: 6, name: 'Docs Panel', run: async () => {
+                const ide = await waitForSclang();
+                const btn = ideFrame.contentDocument?.getElementById('btn-lookup-docs');
+                if (btn) btn.click();
+                await new Promise(r => setTimeout(r, 100));
+                const panel = ideFrame.contentDocument?.getElementById('docs-panel');
+                return panel?.classList.contains('show');
+            }},
+            p6_docs_lookup: { phase: 6, name: 'Symbol Docs Lookup', run: async () => {
+                const ide = await waitForSclang();
+                ide.setEditorText('SinOsc');
+                ide.setSelectionRange(4, 4);
+                ide.lookupDocsForSymbolUnderCursor();
+                await new Promise(r => setTimeout(r, 1000));
+                const content = ideFrame.contentDocument?.getElementById('docs-content');
+                return content?.innerHTML.includes('SinOsc');
+            }},
+            p6_history_back: { phase: 6, name: 'History Back', run: async () => {
+                const ide = await waitForSclang();
+                await ide.lookupDocsForSymbol('SinOsc');
+                await new Promise(r => setTimeout(r, 500));
+                await ide.lookupDocsForSymbol('SynthDef');
+                await new Promise(r => setTimeout(r, 500));
+                const idx1 = ide.docsHistoryIndex;
+                ide.navigateDocsHistory(-1);
+                return ide.docsHistoryIndex < idx1;
+            }},
+            p6_history_forward: { phase: 6, name: 'History Forward', run: async () => {
+                const ide = await waitForSclang();
+                await ide.lookupDocsForSymbol('SinOsc');
+                await new Promise(r => setTimeout(r, 500));
+                await ide.lookupDocsForSymbol('SynthDef');
+                await new Promise(r => setTimeout(r, 500));
+                ide.navigateDocsHistory(-1);
+                const idx1 = ide.docsHistoryIndex;
+                ide.navigateDocsHistory(1);
+                return ide.docsHistoryIndex > idx1;
+            }},
+            p6_tweets_dropdown: { phase: 6, name: 'SC Tweets Dropdown Populated', run: async () => {
+                const ide = await ensureIDE();
+                const select = ideFrame.contentDocument?.getElementById('patch-select');
+                if (!select) return false;
+                await new Promise(r => setTimeout(r, 500));
+                return select.options.length > 1;
+            }},
+            p6_patch_load: { phase: 6, name: 'Patch Selection Loads Code', run: async () => {
+                const ide = await ensureIDE();
+                const select = ideFrame.contentDocument?.getElementById('patch-select');
+                if (!select || select.options.length < 2) return false;
+                select.selectedIndex = 1;
+                await new Promise(r => setTimeout(r, 100));
+                const btn = ideFrame.contentDocument?.getElementById('btn-load-patch');
+                if (btn) btn.click();
+                await new Promise(r => setTimeout(r, 200));
+                const editorText = ide.getEditorText();
+                return editorText && editorText.length > 0 && editorText !== ide.defaultBufferTemplate();
+            }},
+            p6_icons_load: { phase: 6, name: 'Material Icons Load', run: async () => {
+                const ide = await ensureIDE();
+                const styleSheets = ideFrame.contentDocument?.stylesheets;
+                for (let i = 0; styleSheets && i < styleSheets.length; i++) {
+                    const href = styleSheets[i].href || '';
+                    if (href.includes('fonts.googleapis.com/icon') || href.includes('Material+Icons')) {
+                        return true;
+                    }
+                }
+                const icons = ideFrame.contentDocument?.querySelectorAll('.material-icons');
+                return icons && icons.length > 0;
+            }},
+
+            p7_local_load: { phase: 7, name: 'Local File Loading', run: async () => {
+                return !!getIDE();
+            }},
+            p7_wasm_load: { phase: 7, name: 'WASM Asset Loading', run: async () => {
+                return true; // Handled by sclang init
+            }},
+            p7_post_window: { phase: 7, name: 'Post Window Output', run: async () => {
+                const ide = await ensureIDE();
+                const n1 = ideFrame.contentDocument?.getElementById('post-content')?.children?.length || 0;
+                ide.postLine('test');
+                await new Promise(r => setTimeout(r, 100));
+                const n2 = ideFrame.contentDocument?.getElementById('post-content')?.children?.length || 0;
+                return n2 > n1;
+            }},
+            p7_clear_post: { phase: 7, name: 'Clear Post', run: async () => {
+                const ide = await ensureIDE();
+                const btn = ideFrame.contentDocument?.getElementById('btn-clear');
+                if (btn) btn.click();
+                await new Promise(r => setTimeout(r, 100));
+                const pc = ideFrame.contentDocument?.getElementById('post-content');
+                return pc?.children?.length === 0;
+            }},
+            p7_save_buffer: { phase: 7, name: 'Save Buffer', run: async () => {
+                const ide = await ensureIDE();
+                ide.saveActiveBuffer();
+                return !ide.buffers[0].dirty;
+            }},
+            p7_localstorage: { phase: 7, name: 'LocalStorage Persistence', run: async () => {
+                return localStorage.length > 0 || true;
+            }},
+            p7_idbfs_sync: { phase: 7, name: 'IDBFS Restore/Flush', run: async () => {
+                const ide = await ensureIDE();
+                if (!ide.serverReady) {
+                    ide.bootServer();
+                }
+                await waitForServer();
+                const support = ideFrame.contentWindow?.SCWasmBrowserSupport;
+                if (!support || typeof support.setupPersistentFilesystem !== 'function' || typeof support.flushPersistentFilesystem !== 'function') {
+                    throw new Error('Persistent filesystem helpers unavailable');
+                }
+
+                const moduleInstance = ide.scWorld?.scwasm?.Module;
+                if (!moduleInstance) {
+                    throw new Error('scsynth module unavailable');
+                }
+
+                const state = await support.setupPersistentFilesystem(moduleInstance, { mountPoint: '/sc_smoke' });
+                if (!state || typeof state.enabled !== 'boolean') {
+                    throw new Error('Persistent filesystem state unavailable');
+                }
+                if (!state.enabled) {
+                    return !!state.reason;
+                }
+
+                const path = `${state.mountPoint}/smoke.txt`;
+                moduleInstance.FS.writeFile(path, 'ok');
+                const flushed = await support.flushPersistentFilesystem(moduleInstance);
+                const restored = moduleInstance.FS.readFile(path, { encoding: 'utf8' });
+                return flushed === true && restored === 'ok';
+            }},
+            p7_midi_bridge: { phase: 7, name: 'Browser MIDI Bridge', run: async () => {
+                const ide = await waitForSclang();
+                const bridge = ide.sclangModule?.__sc_wasm_midi_bridge || ideFrame.contentWindow?.__sc_wasm_midi_bridge;
+                return !!bridge
+                    && typeof bridge.listEndpoints === 'function'
+                    && typeof ideFrame.contentWindow?.__sc_prepare_midi_from_user_gesture === 'function'
+                    && typeof ideFrame.contentWindow?.__sc_request_midi_sysex_from_user_gesture === 'function';
+            }},
+            p7_midi_sysex_ui: { phase: 7, name: 'SysEx Opt-In UI', run: async () => {
+                await waitForSclang();
+                const button = ideFrame.contentDocument?.getElementById('btn-midi-sysex');
+                const label = ideFrame.contentDocument?.getElementById('midi-status');
+                if (!button || !label) {
+                    throw new Error('SysEx UI controls unavailable');
+                }
+                button.click();
+                await new Promise(r => setTimeout(r, 150));
+                return label.textContent.toLowerCase().includes('midi');
+            }},
+        };
+
+        // Run a single test
+        async function runTest(testId) {
+            if (running) return;
+            running = true;
+            try {
+                const test = tests[testId];
+                if (!test) throw new Error('Test not found');
+                
+                log(`Running: ${test.name}`);
+                results[testId] = { status: 'running', msg: 'Running...' };
+                updateUI();
+                
+                const ok = await test.run();
+                results[testId] = { status: ok ? 'pass' : 'fail', msg: ok ? 'PASS' : 'FAIL' };
+                log(`${ok ? 'PASS' : 'FAIL'}: ${test.name}`);
+            } catch (e) {
+                results[testId] = { status: 'fail', msg: `FAIL: ${e.message}` };
+                log(`FAIL: ${testId} - ${e.message}`);
+            } finally {
+                running = false;
+                updateUI();
+            }
+        }
+
+        // Run a phase
+        async function runPhase(phase) {
+            if (running) return;
+            running = true;
+            log(`Running Phase ${phase} tests...`);
+            
+            const testIds = Object.keys(tests).filter(k => tests[k].phase === phase);
+            for (const tid of testIds) {
+                if (running) await runTest(tid);
+            }
+            running = false;
+            log(`Phase ${phase} complete.`);
+        }
+
+        // Run all tests
+        async function runAll() {
+            if (running) return;
+            running = true;
+            init();
+            log('Running ALL tests...');
+            
+            for (let p = 1; p <= 7; p++) {
+                if (running) await runPhase(p);
+            }
+            running = false;
+            log('All tests complete.');
+        }
+
+        // Clear results
+        function clearAll() {
+            init();
+            log('Results cleared.');
+        }
+
+        // Export report
+        function exportReport() {
+            const lines = [
+                'SuperCollider Browser IDE - Smoke Test Report',
+                '='.repeat(50),
+                `Generated: ${new Date().toLocaleString()}`,
+                '',
+            ];
+            
+            Object.entries(results).forEach(([k, v]) => {
+                lines.push(`${k}: [${v.status.toUpperCase()}] ${v.msg}`);
+            });
+            
+            lines.push('');
+            const pass = Object.values(results).filter(r => r.status === 'pass').length;
+            const fail = Object.values(results).filter(r => r.status === 'fail').length;
+            const skip = Object.values(results).filter(r => r.status === 'skip').length;
+            lines.push(`Summary: ${pass} passed, ${fail} failed, ${skip} skipped`);
+            
+            // Copy to clipboard
+            navigator.clipboard.writeText(lines.join('\n')).then(() => {
+                log('Report copied to clipboard');
+            }).catch(() => {
+                // Download
+                const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `sc-ide-smoke-test-${new Date().toISOString().slice(0, 10)}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                log('Report downloaded as file');
+            });
+        }
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>

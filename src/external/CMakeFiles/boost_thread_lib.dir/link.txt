@@ -1,0 +1,2 @@
+/usr/bin/ar qc libboost_thread_lib.a CMakeFiles/boost_thread_lib.dir/boost/libs/thread/src/future.cpp.o CMakeFiles/boost_thread_lib.dir/boost/libs/thread/src/tss_null.cpp.o CMakeFiles/boost_thread_lib.dir/boost/libs/thread/src/pthread/once.cpp.o CMakeFiles/boost_thread_lib.dir/boost/libs/thread/src/pthread/once_atomic.cpp.o CMakeFiles/boost_thread_lib.dir/boost/libs/thread/src/pthread/thread.cpp.o
+/usr/bin/ranlib libboost_thread_lib.a

@@ -1,0 +1,79 @@
+/*
+    SuperCollider real time audio synthesis system
+    Copyright (c) 2002 James McCartney. All rights reserved.
+    http://www.audiosynth.com
+
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
+*/
+
+#pragma once
+
+#include "SC_Node.h"
+#include "SC_Rate.h"
+#include "SC_SndBuf.h"
+
+enum { kGraph_Reblock = 0x1, kGraph_Resample = 0x2 };
+
+#define kGraph_ReblockOrResample (kGraph_Reblock | kGraph_Resample)
+
+/*
+ changes to this struct likely also mean that a change is needed for
+    static const int sc_api_version = x;
+ value in SC_InterfaceTable.h file.
+ */
+struct Graph {
+    Node mNode;
+    int32 mRefCount;
+
+    uint16 mNumTicks;
+    uint16 mTickCounter;
+
+    uint32 mFlags;
+
+    Rate* mFullRate;
+    Rate* mBufRate;
+
+    uint32 mNumWires;
+    uint32 mNumControls;
+
+    struct Wire* mWire;
+    float* mControls;
+    float** mMapControls;
+    int32* mAudioBusOffsets;
+
+    // try this for setting the rate of a control
+    int32* mControlRates;
+
+    uint32 mNumUnits;
+    uint32 mNumCalcUnits;
+
+    struct Unit** mUnits;
+    struct Unit** mCalcUnits; // excludes i-rate units.
+
+    int32 mSampleOffset;
+    float mSubsampleOffset;
+
+    struct RGen* mRGen;
+
+    struct Unit* mLocalAudioBusUnit;
+    struct Unit* mLocalControlBusUnit;
+
+    SndBuf* mLocalSndBufs;
+    int32 localBufNum;
+    int32 localMaxBufNum;
+
+    void* mPrivate;
+};
+typedef struct Graph Graph;

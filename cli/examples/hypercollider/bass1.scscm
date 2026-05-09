@@ -1,0 +1,13 @@
+; bass1.scscm — SCSCM port of hyper-collider bass1
+; Dark bass: three detuned saws through a resonant low-pass filter.
+
+(defsynth bass1 (freq 55 detune 0.3 cutoff 400 rq 0.3 decay 0.8 amp 0.5)
+  (var env  (EnvGen.kr (Env.perc 0.005 decay) (dict :doneAction 2)))
+  (var saw1 (Saw.ar freq))
+  (var saw2 (Saw.ar (* freq (+ 1 (* detune 0.01)))))
+  (var saw3 (Saw.ar (* freq (- 1 (* detune 0.01)))))
+  (var mix  (/ (+ saw1 saw2 saw3) 3))
+  (var filt (RLPF.ar mix (+ (* cutoff env) 60) rq))
+  (Out.ar 0 (Pan2.ar (* filt env amp))))
+
+(Synth.new :bass1 (list :freq 55 :detune 0.3 :cutoff 400 :rq 0.3 :decay 0.8 :amp 0.5))

@@ -1,0 +1,41 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "native_host_release",
+      "displayName": "Native WASM Host — Release",
+      "description": "Self-contained hclang/hcsynth binaries using WAMR (no Emscripten required)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../build/native",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "HC_EMBED_WASM": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "native_host_debug",
+      "displayName": "Native WASM Host — Debug",
+      "description": "Debug build of self-contained hclang/hcsynth binaries using WAMR",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../build/native_debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "HC_EMBED_WASM": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "native_host_release",
+      "configurePreset": "native_host_release",
+      "jobs": 0
+    },
+    {
+      "name": "native_host_debug",
+      "configurePreset": "native_host_debug",
+      "jobs": 0
+    }
+  ]
+}

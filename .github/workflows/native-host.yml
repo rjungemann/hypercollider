@@ -1,0 +1,212 @@
+name: Native host (WAMR)
+
+# Build hclang_native + hcsynth_native — the WAMR-hosted standalone
+# binaries. Verifies the WASI build of hclang.wasm/hcsynth.wasm, the
+# host wrappers, and a smoke run of the bundled wamr-full bench.
+#
+# Structure:
+#   build-wasi   — Linux-only Emscripten build, produces hclang.wasm /
+#                  hcsynth.wasm and uploads them as the wasi-blobs
+#                  artefact. Cached on the source tree hash.
+#   build-native — matrix over Linux / macOS-arm64 / Windows. Downloads
+#                  wasi-blobs, embeds them via HC_EMBED_WASM=ON, builds
+#                  the native host, smoke-tests, and (on v* tags only)
+#                  uploads the binaries as a release artefact.
+#
+# Cross-building the .wasm once on Linux avoids Emscripten-on-Windows
+# pain and keeps the matrix runtime down.
+
+on:
+  push:
+    branches: [ main, wamr ]
+    tags:     [ 'v*' ]
+  pull_request:
+    branches: [ main, wamr ]
+
+jobs:
+  build-wasi:
+    name: Build WASI .wasm (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 5.0.5
+          actions-cache-folder: emsdk-cache
+
+      - name: Verify emcc
+        run: emcc --version
+
+      - name: Cache WASI build artefacts
+        uses: actions/cache@v4
+        id: wasi-cache
+        with:
+          path: |
+            build/wasi/lang/hclang/hclang.wasm
+            build/wasi/server/hcsynth/hcsynth.wasm
+            build/wasi/lang/hclang/hclang_classlib.pack
+          key: wasi-${{ runner.os }}-${{ hashFiles('src/lang/**', 'src/server/**', 'src/common/**', 'engine/**', 'src/lang/CMakeLists.txt', 'src/server/core/CMakeLists.txt', 'cmake_modules/EmscriptenWasiToolchain.cmake') }}
+
+      - name: Build WASI hclang.wasm + hcsynth.wasm
+        if: steps.wasi-cache.outputs.cache-hit != 'true'
+        run: |
+          cmake --preset wasi_release
+          cmake --build build/wasi --target hclang hcsynth -j$(nproc)
+
+      # Stage into a flat directory for the artifact, then reconstruct
+      # the build/wasi/{lang,server}/... layout in the consuming jobs.
+      # This avoids any ambiguity around upload-artifact's path-flattening
+      # behaviour with multiple input paths.
+      - name: Stage WASI artefacts
+        run: |
+          mkdir -p wasi-stage
+          cp build/wasi/lang/hclang/hclang.wasm           wasi-stage/
+          cp build/wasi/lang/hclang/hclang_classlib.pack  wasi-stage/ 2>/dev/null || true
+          cp build/wasi/server/hcsynth/hcsynth.wasm       wasi-stage/
+
+      - name: Upload WASI artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasi-blobs
+          path: wasi-stage/
+          if-no-files-found: error
+
+  build-native:
+    name: ${{ matrix.os }}
+    needs: build-wasi
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_suffix: linux-x64
+            binary_ext: ""
+          - os: macos-14            # arm64
+            artifact_suffix: macos-arm64
+            binary_ext: ""
+          - os: windows-latest
+            artifact_suffix: windows-x64
+            binary_ext: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download WASI .wasm artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: wasi-blobs
+          path: wasi-stage
+
+      - name: Restore WASI tree layout
+        shell: bash
+        run: |
+          mkdir -p build/wasi/lang/hclang build/wasi/server/hcsynth
+          cp wasi-stage/hclang.wasm          build/wasi/lang/hclang/
+          cp wasi-stage/hclang_classlib.pack build/wasi/lang/hclang/ 2>/dev/null || true
+          cp wasi-stage/hcsynth.wasm         build/wasi/server/hcsynth/
+          ls -la build/wasi/lang/hclang/ build/wasi/server/hcsynth/
+
+      - name: Configure native build
+        shell: bash
+        run: |
+          cmake -B build/native -S native \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHC_EMBED_WASM=ON \
+            -DHC_REQUIRE_EMBEDDED_WASM=ON
+
+      - name: Build native hosts
+        shell: bash
+        run: |
+          # --config Release covers MSVC's multi-config generator on
+          # Windows; ignored by single-config generators (Make/Ninja).
+          cmake --build build/native --config Release \
+            --target hclang_native hcsynth_native \
+            -j
+
+      # ── Smoke tests (POSIX) ────────────────────────────────────────────────
+      - name: Smoke test — hclang_native self-contained (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cp build/native/hclang_host/hclang_native /tmp/
+          cd /tmp
+          cat > smoke.scd <<'EOF'
+            "hello from CI".postln;
+            (40 + 2).postln;
+            [1, 2, 3].sum.postln;
+          EOF
+          ./hclang_native --script smoke.scd > smoke.out 2>&1
+          cat smoke.out
+          grep -q "hello from CI" smoke.out
+          grep -q "^42" smoke.out
+          grep -q "^6"  smoke.out
+
+      - name: Smoke test — wamr-full bench (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          bash bench/run_bench.sh \
+            --toolchains wamr-full --patches sine \
+            --phases cold --runs 1 --warmups 0
+          LATEST=$(ls -t bench/results/*.json | head -1)
+          BYTES=$(node -e "console.log(JSON.parse(require('fs').readFileSync('$LATEST')).results[0]?.output_bytes || 0)")
+          echo "Output bytes: $BYTES"
+          [ "$BYTES" -gt 1000000 ] || { echo "Bench produced too small a WAV"; exit 1; }
+
+      # ── Smoke test (Windows) ───────────────────────────────────────────────
+      # Multi-config generators put the binary under Release/. We locate it
+      # rather than hard-coding the path so the same step works if the
+      # generator changes.
+      - name: Smoke test — hclang_native self-contained (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = Get-ChildItem -Path build/native -Recurse -Filter "hclang_native.exe" | Select-Object -First 1
+          if (-not $bin) { Write-Error "hclang_native.exe not found"; exit 1 }
+          Write-Host "Found binary: $($bin.FullName)"
+          $tmp = $env:TEMP
+          Copy-Item $bin.FullName "$tmp\hclang_native.exe"
+          @'
+          "hello from CI".postln;
+          (40 + 2).postln;
+          [1, 2, 3].sum.postln;
+          '@ | Out-File -Encoding utf8 "$tmp\smoke.scd"
+          & "$tmp\hclang_native.exe" --script "$tmp\smoke.scd" *>&1 | Tee-Object "$tmp\smoke.out"
+          $out = Get-Content "$tmp\smoke.out" -Raw
+          if ($out -notmatch "hello from CI") { Write-Error "missing greeting"; exit 1 }
+          if ($out -notmatch "(?m)^42")        { Write-Error "missing 42";       exit 1 }
+          if ($out -notmatch "(?m)^6")         { Write-Error "missing 6";        exit 1 }
+
+      # ── Tagged-release artefacts ───────────────────────────────────────────
+      # Only on `git push v*` tags. One artefact per OS so each native
+      # binary pair can be downloaded standalone from the Release UI.
+      - name: Stage WAMR binaries
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          mkdir -p release
+          # find handles both single-config (build/native/<host>/binary)
+          # and multi-config (build/native/<host>/Release/binary.exe) layouts
+          find build/native -maxdepth 5 -type f \
+              \( -name "hclang_native${{ matrix.binary_ext }}" \
+              -o -name "hcsynth_native${{ matrix.binary_ext }}" \) \
+              -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Upload WAMR binaries
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: hcwamr-${{ matrix.artifact_suffix }}-${{ github.ref_name }}
+          path: release/
+          if-no-files-found: error

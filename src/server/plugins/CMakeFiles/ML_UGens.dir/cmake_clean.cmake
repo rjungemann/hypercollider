@@ -1,0 +1,27 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/ML_UGens.dir/BeatTrack.cpp.o"
+  "CMakeFiles/ML_UGens.dir/BeatTrack.cpp.o.d"
+  "CMakeFiles/ML_UGens.dir/BeatTrack2.cpp.o"
+  "CMakeFiles/ML_UGens.dir/BeatTrack2.cpp.o.d"
+  "CMakeFiles/ML_UGens.dir/KeyTrack.cpp.o"
+  "CMakeFiles/ML_UGens.dir/KeyTrack.cpp.o.d"
+  "CMakeFiles/ML_UGens.dir/Loudness.cpp.o"
+  "CMakeFiles/ML_UGens.dir/Loudness.cpp.o.d"
+  "CMakeFiles/ML_UGens.dir/MFCC.cpp.o"
+  "CMakeFiles/ML_UGens.dir/MFCC.cpp.o.d"
+  "CMakeFiles/ML_UGens.dir/ML.cpp.o"
+  "CMakeFiles/ML_UGens.dir/ML.cpp.o.d"
+  "CMakeFiles/ML_UGens.dir/ML_SpecStats.cpp.o"
+  "CMakeFiles/ML_UGens.dir/ML_SpecStats.cpp.o.d"
+  "CMakeFiles/ML_UGens.dir/Onsets.cpp.o"
+  "CMakeFiles/ML_UGens.dir/Onsets.cpp.o.d"
+  "CMakeFiles/ML_UGens.dir/onsetsds.c.o"
+  "CMakeFiles/ML_UGens.dir/onsetsds.c.o.d"
+  "ML_UGens.pdb"
+  "ML_UGens.scx"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang C CXX)
+  include(CMakeFiles/ML_UGens.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()

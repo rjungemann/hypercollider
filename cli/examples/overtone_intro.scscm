@@ -1,0 +1,23 @@
+; overtone_intro.scscm
+; Overtone-style instrument definition and playback
+
+; Define a simple sine instrument
+(definst sine-wave (freq 440 amp 0.3 gate 1)
+  (* (SinOsc.ar freq 0)
+     (adsr gate 0.01 0.1 0.8 0.3)))
+
+; Define a plucked string instrument
+(definst pluck (freq 440 amp 0.5 decay 2.0)
+  (* (Pluck.ar (WhiteNoise.ar) (Impulse.kr 0) 0.2 (/ 1.0 freq) decay 0.1)
+     amp))
+
+; Play a major chord
+(var root (sine-wave :freq (midi->hz 60) :amp 0.2))
+(var third (sine-wave :freq (midi->hz 64) :amp 0.2))
+(var fifth (sine-wave :freq (midi->hz 67) :amp 0.2))
+
+; Detune the third after 2 seconds
+(in 2.0 (ctl third :freq (midi->hz 63)))
+
+; Stop everything after 4 seconds
+(in 4.0 (do (kill root) (kill third) (kill fifth)))

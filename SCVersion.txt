@@ -1,0 +1,49 @@
+# This file is included by CMakeLists.txt and is the single place where SC version should be updated.
+# Note that you need to "make install" for this information to be copied into all places.
+
+set(SC_VERSION_MAJOR 3)
+set(SC_VERSION_MINOR 15)
+set(SC_VERSION_PATCH 0)
+set(SC_VERSION_TWEAK "-dev")
+set(SC_VERSION ${SC_VERSION_MAJOR}.${SC_VERSION_MINOR}.${SC_VERSION_PATCH}${SC_VERSION_TWEAK})
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/.git")
+
+  execute_process(
+    COMMAND git rev-parse --abbrev-ref HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_BRANCH_OR_TAG
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  
+  set(GIT_REF_TYPE "branch")
+  
+  if(GIT_BRANCH_OR_TAG STREQUAL "HEAD")
+    execute_process(
+      COMMAND git describe --tags
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+      OUTPUT_VARIABLE GIT_BRANCH_OR_TAG
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+    )
+    if(GIT_BRANCH_OR_TAG STREQUAL "")
+      set(GIT_REF_TYPE "detached")
+      set(GIT_BRANCH_OR_TAG "HEAD")
+    else()
+      set(GIT_REF_TYPE "tag")
+    endif()
+  endif()
+
+  execute_process(
+    COMMAND git log -1 --format=%h
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+
+else()
+
+  SET(GIT_BRANCH not_a_git_checkout)
+  SET(GIT_COMMIT_HASH na)
+
+endif()

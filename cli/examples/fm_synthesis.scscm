@@ -1,0 +1,14 @@
+; fm_synthesis.scscm - Frequency modulation synthesis example
+; FM Synth with modulator
+(SynthDef "fm-synth"
+  (fn (carrier-freq 440 mod-freq 100 mod-amount 50 amp 0.1 gate 1)
+    (var modulator (SinOsc.ar mod-freq 0))
+    (var modulated-freq (+ carrier-freq (* modulator mod-amount)))
+    (var osc (SinOsc.ar modulated-freq 0))
+    (var envelope
+         (EnvGen.kr (Env.adsr 0.01 0.1 0.8 0.1) gate (dict :doneAction 2)))
+    (Out.ar 0 (* osc envelope amp))))
+
+; Play FM synth
+(Synth "fm-synth"
+  (dict :carrier-freq 440 :mod-freq 100 :mod-amount 50 :amp 0.1))

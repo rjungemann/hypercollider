@@ -1,0 +1,38 @@
+.DS_Store
+
+# CLion files
+.idea
+cmake-build-*
+
+# Python/PyCharm files
+venv
+__pycache__
+
+# build directories
+/build/
+
+# CPM source cache (set in CMakeLists.txt; overridable via $CPM_SOURCE_CACHE)
+/.cpm_cache/
+
+*~
+*.orig
+# vim swap files
+.*.sw?
+
+# clangd
+.cache/*
+
+# VS Code files
+.vscode/*
+!.vscode/tasks.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/c_cpp_properties.json
+
+node_modules/
+
+# Benchmark results (generated, not tracked)
+bench/results/
+
+# Auto-generated followup / analysis docs
+docs/BENCH_FOLLOWUP.md

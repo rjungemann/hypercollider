@@ -1,0 +1,1 @@
+../../../build_wasm/lang/sclang/sclang_wasm.js

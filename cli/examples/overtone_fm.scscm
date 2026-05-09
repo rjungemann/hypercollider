@@ -1,0 +1,22 @@
+; overtone_fm.scscm
+; FM synthesis with Overtone-style API
+
+; FM bell instrument
+(definst fm-bell (freq 440 amp 0.3 ratio 2.0 index 5.0 decay 2.0)
+  (var modulator (* (SinOsc.ar (* freq ratio) 0) (* freq index)))
+  (var carrier (SinOsc.ar (+ freq modulator) 0))
+  (* carrier (perc 0.001 decay) amp))
+
+; Get scale degrees in C major
+(var c-major (list 60 62 64 65 67 69 71 72))
+
+; Play arpeggio using collect + in scheduling
+(var freqs (collect (note c-major) (midi->hz note)))
+
+; Play each note with increasing decay
+(doseq (i (list 0 1 2 3 4 5 6 7))
+  (in (* i 0.4)
+    (fm-bell
+      :freq (. freqs at i)
+      :decay (+ 0.5 (* i 0.3))
+      :index (- 8.0 (* i 0.8)))))

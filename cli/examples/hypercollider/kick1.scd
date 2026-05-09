@@ -1,0 +1,16 @@
+// kick1.scd — ported from hyper-collider instruments/kick/kick1.sc
+// 808-style kick: pitch-swept sine with a sharp click transient.
+// Fixed args make output deterministic.
+
+SynthDef(\kick1, {
+    arg freq = 50, decay = 0.4, click = 0.02, amp = 0.6;
+    var env      = EnvGen.kr(Env.perc(0.001, decay), doneAction: 2);
+    var freqEnv  = EnvGen.kr(Env.perc(0.001, 0.07)) * freq * 4 + freq;
+    var body     = SinOsc.ar(freqEnv) * env;
+    var clickEnv = EnvGen.kr(Env.perc(0.001, click));
+    var transient = HPF.ar(WhiteNoise.ar(), 800) * clickEnv * 0.3;
+    Out.ar(0, Pan2.ar((body + transient) * amp));
+}).add;
+
+s.sync;
+Synth(\kick1, [\freq, 50, \decay, 0.4, \click, 0.02, \amp, 0.6]);

@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperCollider WASM AudioWorklet Test</title>
+  <style>
+    body {
+      font-family: 'Monaco', 'Courier New', monospace;
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 { color: #333; }
+    .test-section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .log-window {
+      background: #000;
+      color: #0f0;
+      padding: 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.4;
+      max-height: 300px;
+      overflow-y: auto;
+      margin: 10px 0;
+    }
+    .log-entry {
+      margin: 2px 0;
+    }
+    .log-info { color: #0f0; }
+    .log-warn { color: #ff0; }
+    .log-error { color: #f00; }
+    button {
+      background: #007acc;
+      color: white;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 8px;
+      margin-bottom: 8px;
+    }
+    button:hover { background: #005a9e; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    .status {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+    .status.ready { background: #0f0; }
+    .status.loading { background: #ff0; animation: pulse 1s infinite; }
+    .status.error { background: #f00; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .chart-container {
+      margin: 20px 0;
+      border: 1px solid #ddd;
+      padding: 10px;
+      border-radius: 4px;
+      background: #fafafa;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      max-width: 100%;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .info-row:last-child { border-bottom: none; }
+    .label { font-weight: bold; color: #666; }
+  </style>
+</head>
+<body>
+
+<h1>SuperCollider WASM + AudioWorklet Test</h1>
+
+<div class="test-section">
+  <h2>Status</h2>
+  <div>
+    <span class="status loading" id="status-indicator"></span>
+    <span id="status-text">Loading...</span>
+  </div>
+</div>
+
+<div class="test-section">
+  <h2>Controls</h2>
+  <button id="btn-load-synthdef">Load SynthDef</button>
+  <button id="btn-create-synth" disabled>Create Synth</button>
+  <button id="btn-free-synth" disabled>Free Synth</button>
+  <button id="btn-run-offline-test" disabled>Run Offline Test</button>
+  <button id="btn-clear-log">Clear Log</button>
+</div>
+
+<div class="test-section">
+  <h2>Log Output</h2>
+  <div class="log-window" id="log-window"></div>
+</div>
+
+<div class="test-section">
+  <h2>Offline Test Results</h2>
+  <div id="test-results" style="display: none;">
+    <div class="info-row">
+      <span class="label">Duration:</span>
+      <span id="result-duration">—</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Sample Rate:</span>
+      <span id="result-samplerate">—</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Channels:</span>
+      <span id="result-channels">—</span>
+    </div>
+    <div class="info-row">
+      <span class="label">Max Level:</span>
+      <span id="result-maxlevel">—</span>
+    </div>
+    <div class="info-row">
+      <span class="label">RMS Level:</span>
+      <span id="result-rms">—</span>
+    </div>
+  </div>
+  <div class="chart-container" id="chart-container" style="display: none;">
+    <canvas id="waveform-canvas" width="800" height="200"></canvas>
+  </div>
+</div>
+
+<script>
+  /**
+   * Main test harness for SuperCollider WASM AudioWorklet
+   */
+  class SCWasmTestHarness {
+    constructor() {
+      this.audioContext = null;
+      this.processor = null;
+      this.offlineContext = null;
+      this.wasmReady = false;
+      this.synthId = null;
+      this.synthdefBuffer = null;
+      this.synthdefName = 'SinOsc';
+
+      this._initUI();
+      this._initAudioWorklet();
+    }
+
+    _initUI() {
+      document.getElementById('btn-load-synthdef').addEventListener('click', () => this._loadSynthDef());
+      document.getElementById('btn-create-synth').addEventListener('click', () => this._createSynth());
+      document.getElementById('btn-free-synth').addEventListener('click', () => this._freeSynth());
+      document.getElementById('btn-run-offline-test').addEventListener('click', () => this._runOfflineTest());
+      document.getElementById('btn-clear-log').addEventListener('click', () => this._clearLog());
+    }
+
+    async _initAudioWorklet() {
+      try {
+        this._log('Initializing AudioWorklet...', 'info');
+
+        // Get the absolute URL for scsynth.js so it resolves correctly in AudioWorklet context
+        const wasmPath = new URL('./scsynth.js', window.location.href).href;
+        this._log(`WASM path: ${wasmPath}`, 'info');
+
+        // Create an online AudioContext for real-time (optional, mainly for processor registration)
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Load the AudioWorklet module
+        await this.audioContext.audioWorklet.addModule('sc_wasm_audioworklet.js');
+        this._log('AudioWorklet module registered', 'info');
+
+        // Create the processor node
+        this.processor = new AudioWorkletNode(this.audioContext, 'scsynth-processor');
+
+        // Set up message handlers
+        this.processor.port.onmessage = (event) => this._handleProcessorMessage(event.data);
+
+        // Tell the processor to initialize WASM
+        this.processor.port.postMessage({ type: 'init-wasm', wasmPath });
+
+        this._log('WASM initialization requested', 'info');
+      } catch (err) {
+        this._setStatus(`Error: ${err.message}`, 'error');
+        this._log(`Initialization failed: ${err.message}`, 'error');
+      }
+    }
+
+    _handleProcessorMessage(msg) {
+      if (!msg.type) return;
+
+      switch (msg.type) {
+        case 'ready':
+          this.wasmReady = true;
+          this._setStatus('WASM Ready', 'ready');
+          document.getElementById('btn-load-synthdef').disabled = false;
+          this._log('WASM module initialized successfully', 'info');
+          break;
+
+        case 'log':
+          this._log(msg.message, 'info');
+          break;
+
+        case 'error':
+          this._setStatus(`Error: ${msg.error}`, 'error');
+          this._log(msg.error, 'error');
+          break;
+
+        case 'synthdef-loaded':
+          this._log(`SynthDef loaded: ${msg.name}`, 'info');
+          document.getElementById('btn-create-synth').disabled = false;
+          break;
+
+        case 'synth-new':
+          this.synthId = msg.synthId;
+          this._log(`Synth created (ID: ${msg.synthId}, name: ${msg.synthName})`, 'info');
+          document.getElementById('btn-free-synth').disabled = false;
+          document.getElementById('btn-run-offline-test').disabled = false;
+          break;
+
+        case 'status':
+          this._log(`Status: synths=${msg.synthCount}, level=${msg.meterLevel.toFixed(4)}`, 'info');
+          break;
+      }
+    }
+
+    _loadSynthDef() {
+      // For now, we'll use a hardcoded minimal SinOsc SynthDef.
+      // In a real scenario, this would be fetched or uploaded.
+      // This is the binary form of: Synth("SinOsc", [freq: 440])
+      // You can generate this from SC with: (Synth.new("SinOsc")).def.asBytes
+      
+      this._log('Loading default SinOsc SynthDef...', 'info');
+      
+      // Use a fetch to load the .scsyndef file if available
+      fetch('../../../testsuite/server/supernova/help_out.scsyndef')
+        .then(r => r.arrayBuffer())
+        .then(buf => {
+          this.synthdefBuffer = buf;
+          this.synthdefName = 'help_out';
+          this.processor.port.postMessage({
+            type: 'load-synthdef',
+            data: buf,
+            name: this.synthdefName,
+          });
+        })
+        .catch(err => {
+          this._log(`Fetch error: ${err.message} — using fallback SinOsc SynthDef`, 'warn');
+          // Fallback: use the compiled binary from the offline test
+          // This is a minimal valid SynthDef binary
+          this._createDefaultSynthDef();
+        });
+    }
+
+    _createDefaultSynthDef() {
+      // Minimal valid SCgf header + SinOsc SynthDef
+      // This is a simplified fallback; normally you'd compile from SC code.
+      this._log('Using minimal fallback SynthDef', 'warn');
+      
+      // Create a minimal synthdef that just outputs silence for now
+      const data = new ArrayBuffer(0);
+      this.processor.port.postMessage({
+        type: 'load-synthdef',
+        data,
+        name: 'silence',
+      });
+    }
+
+    _createSynth() {
+      if (!this.wasmReady || !this.synthId === null) {
+        this._log('Cannot create synth: WASM not ready or synth already exists', 'warn');
+        return;
+      }
+
+      this.processor.port.postMessage({
+        type: 'synth-new',
+        synthName: this.synthdefName,
+        args: { freq: 440 },
+      });
+    }
+
+    _freeSynth() {
+      if (this.synthId === null) {
+        this._log('No synth to free', 'warn');
+        return;
+      }
+
+      this.processor.port.postMessage({
+        type: 'synth-free',
+        synthId: this.synthId,
+      });
+
+      this.synthId = null;
+      document.getElementById('btn-free-synth').disabled = true;
+    }
+
+    async _runOfflineTest() {
+      if (!this.wasmReady) {
+        this._log('Cannot run test: WASM not ready', 'error');
+        return;
+      }
+
+      this._log('Starting offline audio test...', 'info');
+
+      try {
+        // Create a new offline context (48kHz, stereo, 2 seconds)
+        const sampleRate = 48000;
+        const channels = 2;
+        const duration = 2;
+        const totalSamples = sampleRate * duration;
+
+        this.offlineContext = new OfflineAudioContext(channels, totalSamples, sampleRate);
+
+        // Add and connect the processor node
+        const offlineProcessor = new AudioWorkletNode(
+          this.offlineContext,
+          'scsynth-processor'
+        );
+
+          // Initialize WASM in the offline context
+        await new Promise((resolve) => {
+          const msgHandler = (event) => {
+            if (event.data.type === 'ready') {
+              offlineProcessor.port.removeEventListener('message', msgHandler);
+              resolve();
+            }
+          };
+          offlineProcessor.port.addEventListener('message', msgHandler);
+          const wasmUrl = new URL('./scsynth.js', window.location.href).href;
+          offlineProcessor.port.postMessage({ type: 'init-wasm', wasmPath: wasmUrl });
+        });
+
+        // Load synthdef and create synth
+        await new Promise((resolve) => {
+          const msgHandler = (event) => {
+            if (event.data.type === 'synthdef-loaded') {
+              offlineProcessor.port.removeEventListener('message', msgHandler);
+              resolve();
+            }
+          };
+          offlineProcessor.port.addEventListener('message', msgHandler);
+          offlineProcessor.port.postMessage({
+            type: 'load-synthdef',
+            data: this.synthdefBuffer,
+            name: this.synthdefName,
+          });
+        });
+
+        // Create synth
+        await new Promise((resolve) => {
+          const msgHandler = (event) => {
+            if (event.data.type === 'synth-new') {
+              offlineProcessor.port.removeEventListener('message', msgHandler);
+              resolve();
+            }
+          };
+          offlineProcessor.port.addEventListener('message', msgHandler);
+          offlineProcessor.port.postMessage({
+            type: 'synth-new',
+            synthName: this.synthdefName,
+            args: { freq: 440 },
+          });
+        });
+
+        // Connect and render
+        offlineProcessor.connect(this.offlineContext.destination);
+
+        this._log('Rendering offline audio...', 'info');
+        const renderedBuffer = await this.offlineContext.startRendering();
+
+        // Analyze results
+        this._analyzeAudioBuffer(renderedBuffer);
+
+      } catch (err) {
+        this._log(`Offline test error: ${err.message}`, 'error');
+      }
+    }
+
+    _analyzeAudioBuffer(buffer) {
+      const channels = buffer.numberOfChannels;
+      const length = buffer.length;
+      const sampleRate = buffer.sampleRate;
+
+      let maxLevel = 0;
+      let rmsLevel = 0;
+      let sumOfSquares = 0;
+
+      for (let ch = 0; ch < channels; ch++) {
+        const data = buffer.getChannelData(ch);
+        for (let i = 0; i < length; i++) {
+          const sample = data[i];
+          maxLevel = Math.max(maxLevel, Math.abs(sample));
+          sumOfSquares += sample * sample;
+        }
+      }
+
+      rmsLevel = Math.sqrt(sumOfSquares / (channels * length));
+      const duration = length / sampleRate;
+
+      // Display results
+      document.getElementById('result-duration').textContent = duration.toFixed(2) + ' s';
+      document.getElementById('result-samplerate').textContent = sampleRate + ' Hz';
+      document.getElementById('result-channels').textContent = channels;
+      document.getElementById('result-maxlevel').textContent = maxLevel.toFixed(6);
+      document.getElementById('result-rms').textContent = rmsLevel.toFixed(6);
+      document.getElementById('test-results').style.display = 'block';
+
+      this._log(`Test complete: max=${maxLevel.toFixed(4)}, RMS=${rmsLevel.toFixed(4)}`, 'info');
+
+      // Draw waveform
+      this._drawWaveform(buffer);
+    }
+
+    _drawWaveform(buffer) {
+      const canvas = document.getElementById('waveform-canvas');
+      const ctx = canvas.getContext('2d');
+      const width = canvas.width;
+      const height = canvas.height;
+
+      // Use first channel for display
+      const data = buffer.getChannelData(0);
+      const step = Math.ceil(data.length / width);
+
+      ctx.fillStyle = '#f5f5f5';
+      ctx.fillRect(0, 0, width, height);
+
+      ctx.strokeStyle = '#007acc';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+
+      const centerY = height / 2;
+      const scale = height / 2;
+
+      for (let i = 0; i < width; i++) {
+        let min = 1, max = -1;
+        for (let j = 0; j < step && i * step + j < data.length; j++) {
+          const sample = data[i * step + j];
+          min = Math.min(min, sample);
+          max = Math.max(max, sample);
+        }
+
+        const y1 = centerY - max * scale;
+        const y2 = centerY - min * scale;
+        if (i === 0) {
+          ctx.moveTo(i, y1);
+        } else {
+          ctx.lineTo(i, y1);
+        }
+      }
+
+      ctx.stroke();
+
+      document.getElementById('chart-container').style.display = 'block';
+      this._log('Waveform rendered', 'info');
+    }
+
+    _setStatus(text, status) {
+      document.getElementById('status-text').textContent = text;
+      const indicator = document.getElementById('status-indicator');
+      indicator.className = `status ${status}`;
+    }
+
+    _log(msg, level = 'info') {
+      const logWindow = document.getElementById('log-window');
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${level}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logWindow.appendChild(entry);
+      logWindow.scrollTop = logWindow.scrollHeight;
+    }
+
+    _clearLog() {
+      document.getElementById('log-window').innerHTML = '';
+    }
+  }
+
+  // Initialize on page load
+  window.addEventListener('load', () => {
+    new SCWasmTestHarness();
+  });
+</script>
+
+</body>
+</html>

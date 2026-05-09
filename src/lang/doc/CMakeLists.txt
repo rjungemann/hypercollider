@@ -1,0 +1,21 @@
+set(SCDOC_DIR ${CMAKE_SOURCE_DIR}/src/lang/doc)
+
+set(SCDOC_SRCS
+    ${SCDOC_DIR}/SCDoc.cpp
+    ${SCDOC_DIR}/SCDoc.h
+    ${SCDOC_DIR}/SCDoc.tab.cpp
+    ${SCDOC_DIR}/lex.scdoc.cpp
+    ${SCDOC_DIR}/SCDocPrim.cpp
+    ${SCDOC_DIR}/SCDocPrim.h
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  set_source_files_properties(
+    ${SCDOC_DIR}/lex.scdoc.cpp
+    PROPERTIES COMPILE_FLAGS "-Wno-null-conversion")
+endif()
+
+include_directories(
+    ${SCDOC_DIR}
+)
+

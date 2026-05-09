@@ -1,0 +1,11 @@
+; sine_wave.scscm - Simple sine wave SynthDef example
+; Define a simple sine wave synth
+(SynthDef "sine"
+  (fn (freq 440 amp 0.1 gate 1)
+    (Out.ar 0
+      (* (SinOsc.ar freq 0)
+        (EnvGen.kr (Env.adsr 0.01 0.1 0.8 0.1) gate (dict :doneAction 2))
+        amp))))
+
+; Play the synth
+(Synth "sine" (dict :freq 440 :amp 0.1))

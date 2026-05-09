@@ -1,0 +1,32 @@
+{
+  "_comment": "Baseline medians for wamr-full bench rows. See docs/HCLANG_NATIVE_PLAN.md §Phase 13. Update with: just bench-update-baselines",
+  "version": 1,
+  "captured_at": "2026-05-08T19:50:27Z",
+  "captured_on": "Darwin arm64",
+  "default_threshold_pct": 20,
+  "rows": [
+    {"toolchain": "wamr-full", "phase": "cold", "patch": "sine", "metric": "wall_total_ms",     "median": 4477,  "threshold_pct": 20},
+    {"toolchain": "wamr-full", "phase": "cold", "patch": "sine", "metric": "wall_compile_ms",   "median": 4252,  "threshold_pct": 20},
+    {"toolchain": "wamr-full", "phase": "cold", "patch": "sine", "metric": "wall_synth_ms",     "median": 4314,  "threshold_pct": 25},
+    {"toolchain": "wamr-full", "phase": "cold", "patch": "sine", "metric": "peak_rss_lang_kb",  "median": 68320, "threshold_pct": 10},
+    {"toolchain": "wamr-full", "phase": "cold", "patch": "sine", "metric": "peak_rss_synth_kb", "median": 28880, "threshold_pct": 10},
+
+    {"toolchain": "wamr-full", "phase": "cold", "patch": "fm",   "metric": "wall_total_ms",     "median": 4454,  "threshold_pct": 20},
+    {"toolchain": "wamr-full", "phase": "cold", "patch": "fm",   "metric": "wall_compile_ms",   "median": 4213,  "threshold_pct": 20},
+    {"toolchain": "wamr-full", "phase": "cold", "patch": "fm",   "metric": "wall_synth_ms",     "median": 4290,  "threshold_pct": 25},
+    {"toolchain": "wamr-full", "phase": "cold", "patch": "fm",   "metric": "peak_rss_lang_kb",  "median": 68320, "threshold_pct": 10},
+    {"toolchain": "wamr-full", "phase": "cold", "patch": "fm",   "metric": "peak_rss_synth_kb", "median": 29056, "threshold_pct": 10},
+
+    {"toolchain": "wamr-full", "phase": "warm", "patch": "sine", "metric": "wall_total_ms",     "median": 4456,  "threshold_pct": 20},
+    {"toolchain": "wamr-full", "phase": "warm", "patch": "sine", "metric": "wall_compile_ms",   "median": 4228,  "threshold_pct": 20},
+    {"toolchain": "wamr-full", "phase": "warm", "patch": "sine", "metric": "wall_synth_ms",     "median": 4289,  "threshold_pct": 25},
+    {"toolchain": "wamr-full", "phase": "warm", "patch": "sine", "metric": "peak_rss_lang_kb",  "median": 68352, "threshold_pct": 10},
+    {"toolchain": "wamr-full", "phase": "warm", "patch": "sine", "metric": "peak_rss_synth_kb", "median": 28848, "threshold_pct": 10},
+
+    {"toolchain": "wamr-full", "phase": "warm", "patch": "fm",   "metric": "wall_total_ms",     "median": 4512,  "threshold_pct": 20},
+    {"toolchain": "wamr-full", "phase": "warm", "patch": "fm",   "metric": "wall_compile_ms",   "median": 4261,  "threshold_pct": 20},
+    {"toolchain": "wamr-full", "phase": "warm", "patch": "fm",   "metric": "wall_synth_ms",     "median": 4345,  "threshold_pct": 25},
+    {"toolchain": "wamr-full", "phase": "warm", "patch": "fm",   "metric": "peak_rss_lang_kb",  "median": 68336, "threshold_pct": 10},
+    {"toolchain": "wamr-full", "phase": "warm", "patch": "fm",   "metric": "peak_rss_synth_kb", "median": 28896, "threshold_pct": 10}
+  ]
+}

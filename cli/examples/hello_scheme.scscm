@@ -1,0 +1,45 @@
+; hello_scheme.scscm - Simple "Hello World" example showing basic features
+; Define a simple helper function
+(defn double (x) (* x 2))
+
+; Variables and arithmetic
+(var x 5)
+
+(var y (+ x 10))
+
+(var z (double y))
+
+; Post to console (debugging)
+(Post.put "x = ")
+
+(Post.put x)
+
+(Post.nl)
+
+(Post.put "y = ")
+
+(Post.put y)
+
+(Post.nl)
+
+(Post.put "z = ")
+
+(Post.put z)
+
+(Post.nl)
+
+; Conditional
+(if (> z 20)
+  (Post.put "z is greater than 20")
+  (Post.put "z is not greater than 20"))
+
+(Post.nl)
+
+; Array and iteration
+(var values (list 1 2 3 4 5))
+
+(Post.put "Array: ")
+
+(Post.put values)
+
+(Post.nl)
