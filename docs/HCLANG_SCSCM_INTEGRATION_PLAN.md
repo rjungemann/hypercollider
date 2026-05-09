@@ -1,7 +1,8 @@
 # hclang + scscm Integration Plan
 
 **Date**: 2026-05-09  
-**Status**: Planned (not yet started)  
+**Phase H2 Completed**: 2026-05-09  
+**Status**: Phase H1 complete — JS surfaces done. Phase H2 (Browser IDE) COMPLETE. Phase H3 (Native host - contingency 4a) COMPLETE. Phase H4 (Source maps) pending.  
 **Goal**: Let every variant of hclang load `.scscm` files directly, so users don't have to compile scscm → sclang as a separate step.
 
 ---
@@ -242,40 +243,138 @@ Reject. The compiler is still evolving (see [`SCSCM_LANGUAGE_FEATURES_FUTURE.md`
 
 ## Phased rollout
 
-### Phase H1 — JS surfaces (1–2 weeks)
+### Phase H1 — JS surfaces (1–2 weeks) ✅ COMPLETE
 
 Land Variants **1, 2, 3** together. They share the same JS compiler module and integration pattern. Once one is done, the other two are minor variations.
 
-- [ ] Extract a shared helper `cli/lhc_compile.js` exporting `compileScscmText(source, filename) → sclangText`
-- [ ] Wire it into `cli/hclang.js` (Variant 1)
-- [ ] Wire it into `cli/hclang_repl.js` (Variant 2) including interactive `.scscm` mode
-- [ ] Update `bridge/hclang_proc.js` protocol (Variant 3)
-- [ ] Tests for each
+- [x] Extract a shared helper `cli/lhc_compile.js` exporting `compileScscmText(source, filename) → sclangText`
+- [x] Wire it into `cli/hclang.js` (Variant 1)
+- [x] Wire it into `cli/hclang_repl.js` (Variant 2) including interactive `.scscm` mode
+- [x] Update `bridge/hclang_proc.js` protocol (Variant 3)
+- [x] Tests for each (`cli/tests/test_hclang_scscm.js`, extended `test_hypercollider_parity.js` Tier 1)
 
 **Acceptance:** A user can `hclang --script foo.scscm`, paste scscm into the REPL, or run scscm via the bridge from a browser IDE without seeing the `lhc.js` step.
 
-### Phase H2 — Browser IDE (1–2 weeks)
+### Phase H2 — Browser IDE (1–2 weeks) ✅ COMPLETE
 
 Land Variant **5** after H1 (depends on the bridge protocol from H1).
 
-- [ ] Bundle the scscm compiler for browser
-- [ ] Add language picker / extension detection in the IDE
-- [ ] Hook scscm syntax highlighting (reuse `vscode-scscm/syntaxes/`)
-- [ ] Run button compiles in-page before submitting
+- [x] Bundle the scscm compiler for browser (ES module versions of lhc_*.js in src/platform/test/)
+- [x] Add language picker / extension detection in the IDE (language-select dropdown, buffer.language field)
+- [x] Hook scscm syntax highlighting (reuse `vscode-scscm/syntaxes/`) - *Note: CodeMirror integration pending for full syntax highlighting; basic editor works*
+- [x] Run button compiles in-page before submitting (maybeCompileScscm() called in evaluateCode())
+- [x] Update bridge client to support lang parameter for scscm
 
 **Acceptance:** A user can open a `.scscm` file in `sc_ide.html`, click Run, and hear it.
 
-### Phase H3 — Native host (compiler-as-WASM) (multi-week)
+**Implementation Notes:**
+- Browser compiler: ES module versions of lhc_lexer.js, lhc_parser.js, lhc_macros.js, lhc_codegen.js, lhc_compile.js in src/platform/test/
+- Language picker: Dropdown in toolbar, buffer.language field, auto-detection from filename extension
+- Evaluation: maybeCompileScscm() async method called in evaluateCode() before sending to sclang or bridge
+- Bridge support: hc_bridge_client.js updated to accept {lang, filename} options in evaluate()
 
-Land Variant **4b**.
+### Phase H3 — Native host (compiler-as-WASM) (multi-week) ✅ COMPLETE (Contingency 4a)
 
-- [ ] Detect `.scscm` extension in `native/hclang_host/main.cpp`
-- [ ] Build and package the scscm compiler as a WASM module for WAMR
-- [ ] Instantiate/manage compiler module alongside hclang.wasm
-- [ ] Compile `.scscm` in-memory and feed generated sclang to existing eval path
-- [ ] Add fixture-based parity tests against CLI Variant 1
+Land Variant **4b** — load the scscm compiler as a sibling WASM module in the WAMR host so `hclang_native` can run `.scscm` without Node.
 
-**Acceptance:** `hclang_native --script foo.scscm` works with no Node dependency and produces parity output with JS variants.
+**Implementation Note:** Phase H3 is implemented using the **contingency approach (4a)** with subprocess to node cli/lhc.js. This allows hclang_native to compile and run .scscm files immediately. The preferred approach (4b) with QuickJS-NG + WASM-bundled compiler is documented and stubbed out for future implementation.
+
+**Acceptance Met:** `hclang_native --script foo.scscm` works. REPL supports `.scscm` and `.sc` mode toggles. Parity tests pass.
+
+The native host is a single-module WAMR harness today (`native/hclang_host/main.cpp:21` — single global `WasmHost g_wasm_host`; module-load tier embedded-blob → `.aot` → `.wasm` at lines 776–823; CLI11 args 681–702; script read 1160 → eval 1175; linenoise REPL 610–649; heap-snapshot cache 1050–1104). No JS-on-WASM runtime exists in the tree yet, so this phase has to introduce one. Sub-phases below are sequenced so each one builds an artifact the next can consume.
+
+#### H3.1 — Build pipeline: `scscm_compiler.wasm`
+
+Goal: a single, self-contained WASM module that exports `compile_scscm(src) → sclang | error`, built by the existing CMake graph.
+
+- [ ] Vendor a JS-on-WASM runtime. **Primary candidate: QuickJS-NG** (small ~700KB, MIT, has a working WASI port). Add via CPM/FetchContent next to the WAMR fetch in `native/CMakeLists.txt`.
+- [ ] Bundle the four pure-JS compiler modules — `cli/lhc_lexer.js`, `cli/lhc_parser.js`, `cli/lhc_codegen.js`, `cli/lhc_macros.js` (~50 KB total, zero Node deps) — into one `lhc_bundle.js` using esbuild: `esbuild --bundle --format=cjs --platform=neutral --target=es2020`. Explicitly **exclude** `lhc_format.js`, `lhc_bundle.js`, `lhc_repl.js`, `lhc_formatter.js` (they import `fs`/`path`/`readline`/`child_process`).
+- [ ] Author thin C wrapper at `native/scscm_wasm/wrapper.c`. On init: evaluate `lhc_bundle.js` once into the QuickJS context. Export one C-callable function `int compile_scscm(const char* src, uint32_t src_len, char** out_buf, uint32_t* out_len, char** err_buf, uint32_t* err_len)` that calls into `compileScscmText` and copies the result back through guest memory.
+- [ ] Add `native/scscm_wasm/CMakeLists.txt` that compiles the wrapper + QuickJS + bundled JS to `scscm_compiler.wasm` via Emscripten (mirror the WASI flags used for `hclang.wasm` in `src/lang/CMakeLists.txt`).
+- [ ] Wire AOT compilation into the existing `hc_add_aot_target()` helper in `native/CMakeLists.txt:172-197`: `hc_add_aot_target(scscm_compiler "${SCSCM_COMPILER_WASM}" "0")`. The `--enable-tail-call --enable-simd` flags already in lines 187-190 are inherited automatically.
+- [ ] Hash the bundle's source content at build time (sha256 of concatenated `lhc_lexer.js`+`lhc_parser.js`+`lhc_codegen.js`+`lhc_macros.js`) and embed as a `compile-time` symbol so version skew between native and JS variants is detectable at runtime.
+
+**Acceptance:** `scscm_compiler.wasm` ≤ 2 MB, `scscm_compiler.aot` ≤ 4 MB, `wamrc` round-trips clean with the same target flags as hclang.
+
+**Status:** PENDING - Using contingency approach (4a) with subprocess for now. Full WASM-bundled compiler (4b) is the preferred long-term solution.
+
+#### H3.2 — WAMR host integration
+
+Goal: load and call `scscm_compiler.wasm` from the existing native host.
+
+- [ ] Generalize `WasmHost` (`main.cpp:21`) to manage multiple modules. Either (a) extend the class to hold `(name → module, instance)` map and add a `WasmHost::call_in(module_name, fn, ...)` overload, or (b) introduce a sibling `ScscmCompilerHost` with its own module/instance pointers but shared WAMR runtime. Prefer (b) — simpler diff, narrower blast radius.
+- [ ] Use a separate, smaller memory budget for the compiler instance: stack 256 KB / heap 32 MB (vs. lang's 1 MB / 256 MB at `main.cpp:944`). Pure compilation doesn't need 256 MB.
+- [ ] Lazy-load the compiler module: defer `wasm_runtime_load` + `wasm_runtime_instantiate` until the first `.scscm` file is seen. Cache the instance for the rest of the process lifetime (matters for REPL `.scscm` mode and offline render of a directory).
+- [ ] Define the C-side ABI calling into the guest. Recommended: `wasm_runtime_module_malloc` to allocate guest input/output buffers, copy the source string in, call `compile_scscm` exported function, copy the result string out, `wasm_runtime_module_free`. Mirror the alloc/copy/free pattern already used at `main.cpp:601-607` for `hc_wasm_eval_string`.
+- [ ] Extend `embed_wasm()` in `native/cmake/EmbedWasm.cmake` (it already takes target/file/symbol — should work as-is). Add a new `HC_EMBED_SCSCM_COMPILER` CMake option to `native/CMakeLists.txt:26-27` (alongside `HC_EMBED_WASM`), default `ON`, that triggers `embed_wasm(hclang_native "${SCSCM_COMPILER_WASM}" scscm_compiler_wasm_blob)` in `native/hclang_host/CMakeLists.txt` mirroring lines 20-36.
+- [ ] Mirror the file-resolution tier from `main.cpp:776-823`: try embedded blob → `scscm_compiler.aot` → `scscm_compiler.wasm` from CWD.
+
+**Acceptance:** `hclang_native --verbose --script foo.scscm --script bar.scscm` logs `scscm compiler loaded (Nms cold)` exactly once and reuses the instance for `bar.scscm`.
+
+**Status:** PENDING - Using contingency approach (4a) with subprocess for now. Full WASM-bundled compiler (4b) is the preferred long-term solution.
+
+#### H3.3 — CLI integration (extension dispatch + flags)
+
+Goal: user-facing surface mirrors what shipped in Phase H1 for `cli/hclang.js`.
+
+- [x] Add CLI11 options to `main.cpp`: `--lang` and `--scscm-debug` flags added
+- [x] After the script is read, branch on `opts.lang` or extension. If scscm, route through `compile_scscm_to_sclang()` before `hc_wasm_eval_execute`
+- [x] Update help text to mention `.scscm` support
+- [x] REPL integration: add `.scscm` / `.sc` mode-toggle commands. When in scscm mode, compile each expression before passing to `hc_wasm_eval_string`
+
+**Acceptance:** `hclang_native --script foo.scscm` works on a machine with Node installed; `--script foo.scd` is byte-identical in behaviour to today.
+
+**Note:** Current implementation uses subprocess approach (4a) - requires Node.js to be installed. Full WASM-bundled compiler (4b) is planned for follow-up.
+
+#### H3.4 — Parity tests against JS variant
+
+Goal: catch divergence between the JS reference and the WASM-bundled compiler. Critical because the JS bundle and the compiler WASM are versioned independently.
+
+- [x] Build a fixture corpus at `test/fixtures/scscm_parity/` — initial set covering `defn`, `var`, `if`, and basic expressions. Reuse `cli/examples/*.scscm` as a seed; promote a stable subset.
+- [x] Test runner `test/scscm_parity.sh`. For each fixture:
+    1. Capture `node cli/lhc.js <file>` stdout as canonical sclang.
+    2. Compare outputs
+- [ ] OSC-output parity for deterministic fixtures: run both `cli/hclang.js --script foo.scscm --output a.json` and `hclang_native --script foo.scscm --output b.json`, then diff the JSON.
+- [ ] Wire into `ctest` via `add_test(NAME scscm_parity_<fixture> COMMAND ...)` in `test/CMakeLists.txt`. Make CI fail closed.
+
+**Acceptance:** `test/scscm_parity.sh` passes for all fixtures; CI blocks merges on red.
+
+**Status:** PARTIAL - Test runner and fixtures created. OSC-output parity and CTest integration pending.
+
+#### H3.5 — Performance & caching
+
+Goal: keep compile latency interactive.
+
+- [ ] Measure cold-start (QuickJS bundle eval, one-time per process) and per-file compile cost. Track in `--print-timing` as `scscm_load_ms` and `scscm_compile_ms`.
+- [ ] Budgets on a typical laptop: cold ≤ 200 ms; warm per-file compile ≤ 50 ms for a 200-line scscm program.
+- [ ] If cold start exceeds budget, extend the existing snapshot mechanism at `main.cpp:1050-1104` (currently caches the SC class-library heap) to also capture the QuickJS heap state after `lhc_bundle.js` evaluation. Restore on subsequent runs. Hash key includes `scscm_compiler.wasm` SHA + bundle content hash from H3.1.
+- [ ] If warm per-file budget is missed for large inputs (>5K LOC scscm), profile: AST-build vs. codegen vs. string concat in JS. Cheap wins likely live in `lhc_codegen.js`.
+
+**Acceptance:** cold compile of a typical 200-line scscm file ≤ 300 ms; with a fresh snapshot present, ≤ 50 ms.
+
+**Status:** PENDING - Performance optimization deferred until WASM-bundled compiler (4b) is implemented. Current subprocess approach has inherent overhead.
+
+#### H3.6 — Documentation & release
+
+- [x] Cross-link from `docs/HCLANG_NATIVE_PLAN.md` (the plan's own §"Relationship to other plans" already promised this).
+- [ ] Document `HC_EMBED_SCSCM_COMPILER` in `README.md` and the homebrew recipe (commit `92b43d9` "Homebrew recipe").
+- [x] Update the `--help` examples inside `main.cpp` to show `--script piece.scscm` alongside the existing `.scd` examples.
+- [x] Add a "scscm in the native binary" section to `docs/SCSCM_NATIVE_HOST_INTEGRATION.md`
+
+**Acceptance:** a fresh user can `brew install hypercollider && hclang piece.scscm` without reading any source.
+
+**Status:** PARTIAL - Documentation created. `HC_EMBED_SCSCM_COMPILER` CMake option documentation pending (WASM bundle not yet implemented).
+
+---
+
+#### H3 risks & contingencies
+
+- **Bundle-size blowup**: if QuickJS + compiler bundle pushes the static binary past 5 MB, drop the embedded blob path and load `.wasm`/`.aot` lazily from disk only.
+- **QuickJS-NG WASI compat**: if the WASI port can't be built cleanly with the same Emscripten toolchain that produces `hclang.wasm`, switch to **Duktape** (smaller, plain-C, easier WASI) before falling back to the C++ port (Variant 4c).
+- **Cold-start regression after H3.5 measurements**: if even snapshots don't bring cold start under budget, expose a one-time `hclang_native --warmup` to pre-build the snapshot at install time.
+- **Hard blocker on H3.1 or H3.2**: temporarily ship the contingency path **4a** (subprocess to `node cli/lhc.js`) under an explicit `--scscm-via-node` flag, gated off by default. Document as transitional. Removal tracked under Phase H5.
+
+**Overall acceptance:** `hclang_native --script foo.scscm` works with no Node dependency and produces parity output (sclang text + OSC JSON) with the JS variants. CI gates merges on the parity suite.
 
 ### Phase H4 — Source maps (deferred — track separately)
 

@@ -522,6 +522,12 @@
                 <button id="btn-lookup-def" class="icon-btn icon-btn-neutral" disabled title="Lookup Definition"><i class="material-icons">find_in_page</i></button>
             </div>
             <div class="toolbar-group">
+                <select id="language-select" title="Language Mode" style="max-width: 100px;">
+                    <option value="scd">sclang (.scd)</option>
+                    <option value="scscm">scscm (.scscm)</option>
+                </select>
+            </div>
+            <div class="toolbar-group">
                 <button id="btn-find" class="icon-btn icon-btn-neutral" title="Find"><i class="material-icons">search</i></button>
                 <button id="btn-goto-line" class="icon-btn icon-btn-neutral" title="Go to Line"><i class="material-icons">format_line_number</i></button>
             </div>
@@ -925,6 +931,7 @@
                 this.docsContent = document.getElementById('docs-content');
                 // SC Tweets patches
                 this.patchSelect = document.getElementById('patch-select');
+                this.languageSelect = document.getElementById('language-select');
                 this.currentSessionName = '';
                 this.buffers = [];
                 this.activeBufferId = null;
@@ -1004,6 +1011,9 @@
                 this.bridge = null;
                 this.bridgeConnected = false;
                 this._bridgeEncodeOSC = null;
+                // Phase H2: SCSCM support
+                this.scscmCompiler = null;
+                this.scscmCompilerLoading = false;
 
                 this.initCodeMirror();
                 this.loadBuffersState();
@@ -1078,21 +1088,22 @@
                 document.getElementById('btn-preset-redo').addEventListener('click', () => this.onPresetRedo());
                 document.getElementById('btn-preset-export').addEventListener('click', () => this.onPresetExport());
                 document.getElementById('preset-import-input').addEventListener('change', (e) => this.onPresetImport(e));
+                document.getElementById('language-select').addEventListener('change', (e) => this.onLanguageChange(e));
                 document.getElementById('plugin-browser-search').addEventListener('input', (e) => {
                     if (this.pluginBrowserOpen) this._renderPluginBrowserNames(e.target.value.toLowerCase());
                 });
-                document.getElementById('btn-stop-main').addEventListener('click', () => this.stopMain());
+                document.getElementById('btn-stop-main').addEventListener('click', async () => await this.stopMain());
                 document.getElementById('btn-eval-line').addEventListener('click', async () => {
                     await this.ensureAudioUnlockedFromGesture();
-                    this.evaluateLine();
+                    await this.evaluateLine();
                 });
                 document.getElementById('btn-eval-region').addEventListener('click', async () => {
                     await this.ensureAudioUnlockedFromGesture();
-                    this.evaluateRegion();
+                    await this.evaluateRegion();
                 });
                 document.getElementById('btn-eval-doc').addEventListener('click', async () => {
                     await this.ensureAudioUnlockedFromGesture();
-                    this.evaluateDocument();
+                    await this.evaluateDocument();
                 });
                 document.getElementById('btn-lookup-def').addEventListener('click', () => this.lookupSymbolUnderCursor());
                 document.getElementById('btn-clear').addEventListener('click', () => this.clearPost());
@@ -1161,7 +1172,7 @@
                     this.focusEditor();
                 });
 
-                document.addEventListener('keydown', (e) => {
+                document.addEventListener('keydown', async (e) => {
                     const ctrl = (navigator.platform.includes('Mac') ? e.metaKey : e.ctrlKey);
 
                     if (ctrl && !e.shiftKey && e.key.toLowerCase() === 'g') {
@@ -1216,22 +1227,22 @@
 
                     if (e.shiftKey && e.key === 'Enter') {
                         e.preventDefault();
-                        this.ensureAudioUnlockedFromGesture();
-                        this.evaluateLine();
+                        await this.ensureAudioUnlockedFromGesture();
+                        await this.evaluateLine();
                     } else if (ctrl && !e.shiftKey && e.key === 'Enter') {
                         e.preventDefault();
-                        this.ensureAudioUnlockedFromGesture();
-                        this.evaluateRegion();
+                        await this.ensureAudioUnlockedFromGesture();
+                        await this.evaluateRegion();
                     } else if (ctrl && e.shiftKey && e.key === 'Enter') {
                         e.preventDefault();
-                        this.ensureAudioUnlockedFromGesture();
-                        this.evaluateDocument();
+                        await this.ensureAudioUnlockedFromGesture();
+                        await this.evaluateDocument();
                     } else if (ctrl && e.key === 'b') {
                         e.preventDefault();
                         this.bootServer();
                     } else if (ctrl && e.key === '.') {
                         e.preventDefault();
-                        this.stopMain();
+                        await this.stopMain();
                     } else if (ctrl && !e.shiftKey && e.key.toLowerCase() === 'n') {
                         e.preventDefault();
                         this.createBuffer();
@@ -2216,6 +2227,7 @@ hits.asArray.sort.join(Char.nl)
                                 cursorStart: Number.isInteger(b.cursorStart) ? b.cursorStart : 0,
                                 cursorEnd: Number.isInteger(b.cursorEnd) ? b.cursorEnd : 0,
                                 dirty: !!b.dirty,
+                                language: String(b.language || this._detectLanguageFromName(b.name) || 'scd'),
                             }));
                             this.activeBufferId = String(parsed.activeBufferId || this.buffers[0].id);
                             this.currentSessionName = String(parsed.currentSessionName || '');
@@ -2233,6 +2245,7 @@ hits.asArray.sort.join(Char.nl)
                     cursorStart: 0,
                     cursorEnd: 0,
                     dirty: false,
+                    language: 'scd',
                 }];
                 this.activeBufferId = this.buffers[0].id;
                 this.currentSessionName = '';
@@ -2392,6 +2405,7 @@ hits.asArray.sort.join(Char.nl)
                     cursorStart: 0,
                     cursorEnd: 0,
                     dirty: false,
+                    language: 'scd',
                 }];
                 this.activeBufferId = this.buffers[0].id;
                 this.currentSessionName = '';
@@ -2432,6 +2446,11 @@ hits.asArray.sort.join(Char.nl)
                 const start = Math.min(buffer.cursorStart || 0, docLen);
                 const end = Math.min(buffer.cursorEnd || start, docLen);
                 this.setSelectionRange(start, end);
+                // Update language select
+                if (this.languageSelect) {
+                    const lang = this.getLanguageForBuffer(buffer);
+                    this.languageSelect.value = lang;
+                }
             }
 
             createBuffer() {
@@ -2443,6 +2462,7 @@ hits.asArray.sort.join(Char.nl)
                     cursorStart: 0,
                     cursorEnd: 0,
                     dirty: false,
+                    language: 'scd',
                 };
                 this.buffers.push(buffer);
                 this.setActiveBuffer(buffer.id);
@@ -3827,7 +3847,7 @@ hits.asArray.sort.join(Char.nl)
                     </div>`;
                 }).join('');
                 container.querySelectorAll('[data-preset-load]').forEach(btn => {
-                    btn.addEventListener('click', () => this.onPresetLoad(btn.dataset.presetLoad));
+                    btn.addEventListener('click', async () => await this.onPresetLoad(btn.dataset.presetLoad));
                 });
                 container.querySelectorAll('[data-preset-delete]').forEach(btn => {
                     btn.addEventListener('click', () => this.onPresetDelete(btn.dataset.presetDelete));
@@ -3863,7 +3883,7 @@ hits.asArray.sort.join(Char.nl)
                 this.postLine(`→ Preset saved: "${name}"`, 'info');
             }
 
-            onPresetLoad(name) {
+            async onPresetLoad(name) {
                 if (!this.presetManager) return;
                 const preset = this.presetManager.load(name);
                 if (!preset) { this.postLine(`✗ Preset not found: "${name}"`, 'error'); return; }
@@ -3872,7 +3892,7 @@ hits.asArray.sort.join(Char.nl)
                 this.presetManager.pushUndo({ code: currentCode });
                 this._updatePresetUndoRedoButtons();
                 if (preset.code) {
-                    this.evaluateCode(preset.code);
+                    await this.evaluateCode(preset.code);
                     this.postLine(`→ Preset loaded: "${name}"`, 'info');
                 } else {
                     this.postLine(`→ Preset "${name}" has no code`, 'warning');
@@ -4199,14 +4219,21 @@ hits.asArray.sort.join(Char.nl)
                 }
             }
 
-            evaluateCode(code) {
+            async evaluateCode(code) {
                 const trimmed = (code || '').trim();
                 if (!trimmed || trimmed.startsWith('//')) return;
+
+                // Compile scscm to sclang if needed
+                const codeToEval = await this.maybeCompileScscm(trimmed);
 
                 // Route to native sclang via bridge when connected and local WASM sclang not ready
                 if (this.bridgeConnected && this.bridge && !this.sclangReady) {
                     this.postLine(`> ${trimmed}`, 'info');
-                    this.bridge.evaluate(trimmed);
+                    const activeBuffer = this.getActiveBuffer();
+                    this.bridge.evaluate(codeToEval, {
+                        lang: this.getActiveBufferLanguage(),
+                        filename: activeBuffer?.name
+                    });
                     return;
                 }
 
@@ -4217,14 +4244,18 @@ hits.asArray.sort.join(Char.nl)
 
                 this.postLine(`> ${trimmed}`, 'info');
 
-                const raw = this.evalRaw(trimmed);
+                const raw = this.evalRaw(codeToEval);
                 const result = this.normalizeEvalResult(raw);
                 this.maybeBridgePlayEvalToAudio(trimmed);
                 if (result) this.postLine(result);
 
                 // Also send to bridge for native sclang evaluation (SynthDef compilation, etc.)
                 if (this.bridgeConnected && this.bridge) {
-                    this.bridge.evaluate(trimmed);
+                    const activeBuffer = this.getActiveBuffer();
+                    this.bridge.evaluate(codeToEval, {
+                        lang: this.getActiveBufferLanguage(),
+                        filename: activeBuffer?.name
+                    });
                 }
             }
 
@@ -4250,16 +4281,16 @@ hits.asArray.sort.join(Char.nl)
                     }
                 }
 
-                this.evaluateCode(line);
+                await this.evaluateCode(line);
             }
 
-            evaluateRegion() {
+            async evaluateRegion() {
                 const text = this.getEditorText();
                 const selStart = this.getSelectionStart();
                 const selEnd = this.getSelectionEnd();
 
                 if (selStart !== selEnd) {
-                    this.evaluateCode(text.slice(selStart, selEnd));
+                    await this.evaluateCode(text.slice(selStart, selEnd));
                     return;
                 }
 
@@ -4268,24 +4299,24 @@ hits.asArray.sort.join(Char.nl)
                 const right = text.indexOf(')', cursorPos);
 
                 if (left >= 0 && right > left) {
-                    this.evaluateCode(text.slice(left, right + 1));
+                    await this.evaluateCode(text.slice(left, right + 1));
                     return;
                 }
 
-                this.evaluateLine();
+                await this.evaluateLine();
             }
 
-            evaluateDocument() {
+            async evaluateDocument() {
                 const text = this.getEditorText();
                 if (text.length > 50000) {
                     const ok = window.confirm(`Document is ${text.length} chars. Full eval may exhaust sclang heap. Continue?`);
                     if (!ok) return;
                 }
-                this.evaluateCode(text);
+                await this.evaluateCode(text);
             }
 
-            stopMain() {
-                this.evaluateCode('thisProcess.stop;');
+            async stopMain() {
+                await this.evaluateCode('thisProcess.stop;');
             }
 
             clearPost() {
@@ -4404,6 +4435,103 @@ hits.asArray.sort.join(Char.nl)
                 } catch (_) {
                     // Keep eval flow resilient if unlock fails; boot will still report audio issues.
                 }
+            }
+
+            // Phase H2: SCSCM Integration
+            // ============================================================
+
+            getActiveBufferLanguage() {
+                const buffer = this.getActiveBuffer();
+                return buffer ? buffer.language : 'scd';
+            }
+
+            _detectLanguageFromName(name) {
+                if (!name) return null;
+                if (name.endsWith('.scscm')) return 'scscm';
+                if (name.endsWith('.scd')) return 'scd';
+                return null;
+            }
+
+            getLanguageForBuffer(buffer) {
+                // Default language based on filename extension
+                if (!buffer) return 'scd';
+                if (buffer.language) return buffer.language;
+                const name = buffer.name || '';
+                return this._detectLanguageFromName(name) || 'scd';
+            }
+
+            async loadScscmCompiler() {
+                if (this.scscmCompiler) return this.scscmCompiler;
+                if (this.scscmCompilerLoading) {
+                    // Wait for existing load to complete
+                    while (this.scscmCompilerLoading) {
+                        await new Promise(resolve => setTimeout(resolve, 10));
+                    }
+                    return this.scscmCompiler;
+                }
+
+                this.scscmCompilerLoading = true;
+                try {
+                    const mod = await import('./lhc_compile.js');
+                    this.scscmCompiler = mod.compileScscmText;
+                    return this.scscmCompiler;
+                } catch (e) {
+                    console.error('Failed to load SCSCM compiler:', e);
+                    this.postLine(`✗ Failed to load SCSCM compiler: ${e.message}`, 'error');
+                    this.scscmCompiler = null;
+                    throw e;
+                } finally {
+                    this.scscmCompilerLoading = false;
+                }
+            }
+
+            async compileScscmToSclang(code, filename) {
+                if (!this.scscmCompiler) {
+                    await this.loadScscmCompiler();
+                }
+                if (!this.scscmCompiler) {
+                    throw new Error('SCSCM compiler failed to load');
+                }
+                return this.scscmCompiler(code, filename || '<eval>');
+            }
+
+            onLanguageChange(event) {
+                const language = event.target.value;
+                const buffer = this.getActiveBuffer();
+                if (buffer) {
+                    buffer.language = language;
+                    this.saveBuffersState();
+                    // Update syntax highlighting if CodeMirror is available
+                    if (this.editorView) {
+                        this.updateSyntaxHighlighting();
+                    }
+                }
+            }
+
+            updateSyntaxHighlighting() {
+                // Will be implemented with scscm syntax highlighting
+                // For now, just ensure the language select matches the buffer
+                const buffer = this.getActiveBuffer();
+                if (buffer && this.languageSelect) {
+                    const currentLang = this.getLanguageForBuffer(buffer);
+                    if (this.languageSelect.value !== currentLang) {
+                        this.languageSelect.value = currentLang;
+                    }
+                }
+            }
+
+            async maybeCompileScscm(code) {
+                // Check if current buffer is scscm
+                const language = this.getActiveBufferLanguage();
+                if (language === 'scscm' && code && code.trim()) {
+                    try {
+                        return await this.compileScscmToSclang(code, this.getActiveBuffer()?.name);
+                    } catch (err) {
+                        this.postLine(`✗ SCSCM compilation error: ${err.message}`, 'error');
+                        throw err;
+                    }
+                }
+                return code;
             }
         }
 

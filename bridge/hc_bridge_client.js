@@ -198,9 +198,20 @@ export class HCBridgeClient {
 
   /**
    * Evaluate SuperCollider code via sclang
+   * @param {string} code - SC code to evaluate
+   * @param {Object} options - Options
+   * @param {string} options.lang - Language: 'scd' (default) or 'scscm'
+   * @param {string} options.filename - Source filename for error context
    */
-  evaluate(code) {
-    return this.sendMessage({ type: 'eval', code });
+  evaluate(code, options = {}) {
+    const msg = { type: 'eval', code };
+    if (options.lang) {
+      msg.lang = options.lang;
+    }
+    if (options.filename) {
+      msg.filename = options.filename;
+    }
+    return this.sendMessage(msg);
   }
 
   /**

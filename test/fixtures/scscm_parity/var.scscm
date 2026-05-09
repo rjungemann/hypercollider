@@ -1,0 +1,4 @@
+; Test var
+(var x 42)
+(var y (+ x 10))
+(+ x y)

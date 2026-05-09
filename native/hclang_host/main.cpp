@@ -14,11 +14,15 @@
 #include <dirent.h>
 #include <errno.h>
 #include <signal.h>
+#include <fcntl.h>
 #include <chrono>
 #include <cstdint>
 
 // Global WASM host instance
 static WasmHost g_wasm_host;
+
+// REPL state (Phase H3: scscm support)
+static bool g_repl_scscm_mode = false; // false = scd mode, true = scscm mode
 
 // ---------------------------------------------------------------------------
 // Snapshot helpers (Phase I2): warm-start heap restoration
@@ -531,6 +535,94 @@ static std::string read_file(const std::string& path) {
 }
 
 // ---------------------------------------------------------------------------
+// SCSCM support (Phase H3)
+// ---------------------------------------------------------------------------
+
+static std::string detect_lang_from_filename(const std::string& path) {
+    if (path.size() >= 6 && path.substr(path.size() - 6) == ".scscm") {
+        return "scscm";
+    }
+    return "scd";
+}
+
+static std::string compile_scscm_to_sclang(const std::string& scscm_code,
+                                          const std::string& filename,
+                                          bool debug_output) {
+    // For Phase H3, we'll use a subprocess call to node cli/lhc.js
+    // This is the contingency approach (4a) mentioned in the plan.
+    // The preferred approach (4b) would be to bundle the compiler as WASM.
+    
+    // Check if we have the lhc compiler available
+    std::string lhc_path = "./cli/lhc.js";
+    if (access(lhc_path.c_str(), X_OK) != 0) {
+        // Try with node
+        lhc_path = "node ./cli/lhc.js";
+    }
+    
+    // Create a temp file for the scscm code
+    char temp_template[] = "/tmp/hclang_scscm_XXXXXX.scscm";
+    int fd = mkstemp(temp_template);
+    if (fd < 0) {
+        fprintf(stderr, "Failed to create temp file for scscm compilation\n");
+        return "";
+    }
+    
+    // Write the scscm code to the temp file
+    ssize_t written = write(fd, scscm_code.c_str(), scscm_code.size());
+    close(fd);
+    
+    if (written != (ssize_t)scscm_code.size()) {
+        fprintf(stderr, "Failed to write scscm code to temp file\n");
+        unlink(temp_template);
+        return "";
+    }
+    
+    // Build the command
+    std::string cmd = "node ";
+    cmd += lhc_path;
+    cmd += " ";
+    cmd += temp_template;
+    
+    // Open a pipe to capture the output
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) {
+        fprintf(stderr, "Failed to run scscm compiler: %s\n", strerror(errno));
+        unlink(temp_template);
+        return "";
+    }
+    
+    // Read the output
+    std::string sclang_code;
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        sclang_code += buffer;
+    }
+    
+    int status = pclose(pipe);
+    
+    // Clean up temp file
+    unlink(temp_template);
+    
+    if (status != 0) {
+        fprintf(stderr, "scscm compilation failed with exit code %d\n", status);
+        return "";
+    }
+    
+    // Write debug output if requested
+    if (debug_output) {
+        std::string debug_path = filename + ".compiled.sc";
+        FILE* debug_f = fopen(debug_path.c_str(), "w");
+        if (debug_f) {
+            fwrite(sclang_code.c_str(), 1, sclang_code.size(), debug_f);
+            fclose(debug_f);
+            fprintf(stdout, "[scscm] Debug output written to %s\n", debug_path.c_str());
+        }
+    }
+    
+    return sclang_code;
+}
+
+// ---------------------------------------------------------------------------
 // REPL loop (linenoise)
 //
 // Phase 11 polish:
@@ -596,11 +688,43 @@ static std::string history_file_path() {
 
 static void repl_dispatch(const std::string& code) {
     if (code.empty()) return;
-    auto     len    = static_cast<uint32_t>(code.size() + 1);
+    
+    // Phase H3: Handle mode toggle commands
+    std::string trimmed = code;
+    // Trim whitespace
+    size_t start = trimmed.find_first_not_of(" \t");
+    if (start != std::string::npos) {
+        size_t end = trimmed.find_last_not_of(" \t\n\r");
+        trimmed = trimmed.substr(start, end - start + 1);
+    }
+    
+    if (trimmed == ".scscm") {
+        g_repl_scscm_mode = true;
+        printf("Switched to scscm mode. Enter scscm code to compile and evaluate.\n");
+        printf("Type '.sc' to return to sclang mode.\n");
+        return;
+    }
+    if (trimmed == ".sc") {
+        g_repl_scscm_mode = false;
+        printf("Switched to sclang mode.\n");
+        return;
+    }
+    
+    // Compile scscm to sclang if in scscm mode
+    std::string code_to_eval = code;
+    if (g_repl_scscm_mode) {
+        code_to_eval = compile_scscm_to_sclang(code, "<repl>", false);
+        if (code_to_eval.empty()) {
+            fprintf(stderr, "scscm compilation failed\n");
+            return;
+        }
+    }
+    
+    auto     len    = static_cast<uint32_t>(code_to_eval.size() + 1);
     void*    native = nullptr;
     uint32_t wptr   = g_wasm_host.wasm_malloc(len, &native);
     if (!wptr) return;
-    memcpy(native, code.c_str(), len);
+    memcpy(native, code_to_eval.c_str(), len);
     wasm_val_t res[1]{};
     g_wasm_host.call("hc_wasm_eval_string", 1, res,
                      wptr, (int32_t)(len - 1));
@@ -676,9 +800,13 @@ int main(int argc, char** argv) {
         // without a /done/notify handshake. Also points Server.default's
         // addr at --scsynth-host/--scsynth-port. Phase 12.4b.
         bool        no_server_boot = false;
+        std::string lang = "auto"; // auto, scd, scscm
+        bool        scscm_debug = false;
     } opts;
 
-    CLI::App app("hclang - HyperCollider language native WASM host");
+    CLI::App app("hclang - HyperCollider language native WASM host\n\n"
+                 "Supports .scd (sclang) and .scscm (scscm) files.\n"
+                 "Use --lang to force language, or .scscm/.sc in REPL.");
     app.add_option("--script,-s",    opts.script_file,  "SC code file to evaluate");
     app.add_option("--output,-o",    opts.output_file,  "Output WAV (for offline render)");
     app.add_flag  ("--repl",         opts.repl,         "Start interactive REPL");
@@ -698,6 +826,8 @@ int main(int argc, char** argv) {
                                      "state and point its addr at "
                                      "--scsynth-host/-port. Lets `{...}.play` "
                                      "work in the wamr-full pipeline.");
+    app.add_option("--lang", opts.lang,              "Force input language: auto, scd, or scscm");
+    app.add_flag  ("--scscm-debug", opts.scscm_debug,  "Write compiled sclang to .compiled.sc");
     app.add_option("-v,--verbose",   opts.verbosity,    "Verbosity level");
     CLI11_PARSE(app, argc, argv);
 
@@ -1163,15 +1293,31 @@ int main(int argc, char** argv) {
                     opts.script_file.c_str());
             return 1;
         }
+        
+        // Phase H3: Compile scscm to sclang if needed
+        std::string detected_lang = opts.lang;
+        if (detected_lang == "auto") {
+            detected_lang = detect_lang_from_filename(opts.script_file);
+        }
+        
+        std::string code_to_eval = code;
+        if (detected_lang == "scscm") {
+            code_to_eval = compile_scscm_to_sclang(code, opts.script_file, opts.scscm_debug);
+            if (code_to_eval.empty()) {
+                fprintf(stderr, "Failed to compile scscm file: %s\n", opts.script_file.c_str());
+                return 1;
+            }
+        }
+        
         // Allocate source string in WASM linear memory
-        auto     len    = static_cast<uint32_t>(code.size());
+        auto     len    = static_cast<uint32_t>(code_to_eval.size());
         void*    native = nullptr;
         uint32_t wptr   = g_wasm_host.wasm_malloc(len + 1, &native);
         if (!wptr) {
             fprintf(stderr, "Failed to allocate WASM buffer for script\n");
             return 1;
         }
-        memcpy(native, code.c_str(), len + 1);
+        memcpy(native, code_to_eval.c_str(), len + 1);
         g_wasm_host.call("hc_wasm_eval_execute", 0, nullptr,
                          wptr, (int32_t)len);
         g_wasm_host.wasm_free(wptr);

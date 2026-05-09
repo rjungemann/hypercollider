@@ -174,9 +174,15 @@ export default {
 **Client → Server:**
 ```json
 { "type": "eval", "code": "Synth(\\sine, [440, 0, 0.1]).play" }
+{ "type": "eval", "code": "(defsynth s (freq 440) (Out.ar 0 (SinOsc.ar freq)))", "lang": "scscm", "filename": "piece.scscm" }
 { "type": "status" }
 { "type": "ping" }
 ```
+
+`eval` optional fields:
+- `lang` — `"scd"` (default) or `"scscm"`. When `"scscm"`, the bridge compiles `code` to sclang before forwarding to sclang.
+- `filename` — source file name used in error messages (e.g. `"piece.scscm"`).
+
 
 **Server → Client:**
 ```json

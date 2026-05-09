@@ -41,6 +41,7 @@ The scscm compiler ships two ways: as `cli/lhc.js` (from the repo) and as a sing
 - **[BONJOUR_PLAN.md](BONJOUR_PLAN.md)** — Zeroconf advertising for hcsynth
 - **[QUARKS_CLI_PLAN.md](QUARKS_CLI_PLAN.md)** — Quarks package management (CLI)
 - **[QUARKS_BROWSER_PLAN.md](QUARKS_BROWSER_PLAN.md)** — Quarks package management (browser IDE)
+- **[SCSCM_SUPERCOLLIDER_IMPLEMENTATION_PLAN.md](SCSCM_SUPERCOLLIDER_IMPLEMENTATION_PLAN.md)** — sclang-hosted scscm compiler implementation for differential stress testing
 - **[scscm/SCSCM_LANGUAGE_FEATURES_FUTURE.md](scscm/SCSCM_LANGUAGE_FEATURES_FUTURE.md)** — Destructuring, `match`, `loop`/`recur`, auto-gensym `#`, `with-recording`
 
 ## Current State

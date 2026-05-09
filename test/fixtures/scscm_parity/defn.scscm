@@ -1,0 +1,3 @@
+; Test defn
+(defn double (x) (* x 2))
+(double 21)
