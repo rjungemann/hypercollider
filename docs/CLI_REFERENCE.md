@@ -108,6 +108,16 @@ node src/platform/wasm/cli/hclang.js --script <file> [options]
 |------|---------|-------------|
 | `--extra-class-path <dir>` | — | Additional directory to search for class files. Can be specified multiple times. Useful for pre-staging quark directories. |
 
+### Service discovery options (mDNS / Bonjour)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-zeroconf` | off | Disable mDNS service discovery |
+| `--zeroconf-timeout <sec>` | `2` | Timeout in seconds for service discovery |
+| `--zeroconf-name <name>` | `SuperCollider` | Service name to look for |
+
+**Note:** When no `--scsynth-host` is provided, hclang will browse for OSC services via mDNS and inject discovered addresses into the sclang environment. Use `NetAddr.findServiceNamed("SuperCollider")` in your SC code to access discovered services.
+
 ### Shared options
 
 | Flag | Default | Description |
@@ -216,6 +226,17 @@ node src/platform/wasm/cli/hcsynth.js --server [options]
 | `--max-logins <n>` | `-l` | `64` | Max TCP connections |
 | `--tcp-password <pass>` | `-p` | none | TCP session password |
 | `--realtime-audio` | | off | Stream audio to speakers via `node-speaker` |
+| `--oscquery-port <port>` | | off | Start an OSCQuery HTTP server on this port (default: --udp-port + 1) |
+| `--no-oscquery` | | off | Disable the OSCQuery HTTP server |
+
+### Service discovery options (mDNS / Bonjour)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-zeroconf` | off | Disable mDNS service advertisement |
+| `--zeroconf-name <name>` | `SuperCollider` | Service name for mDNS advertisement |
+
+**Note:** Service advertisement is enabled by default in server mode. Use `--no-zeroconf` to disable it. Discovered services can be browsed using `NetAddr.findServiceNamed("SuperCollider")` from sclang code.
 
 ### Shared options
 
@@ -254,6 +275,28 @@ Starts an interactive session with WASM sclang + WASM scsynth and real-time audi
 ```
 node src/platform/wasm/cli/hclang_repl.js
 ```
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--sample-rate <hz>` | `48000` | Sample rate |
+| `--block-size <samples>` | `512` | Render block size |
+| `--channels <n>` | `2` | Output channels |
+| `--sclang-js <path>` | auto | Path to hclang.js |
+| `--scsynth-js <path>` | auto | Path to hcsynth.js (in-process mode only) |
+| `--verbose` | off | Print all sclang post window output |
+| `--preset-dir <path>` | `~/.sc_presets` | Directory for preset JSON files |
+
+### Service discovery options (mDNS / Bonjour)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-zeroconf` | off | Disable mDNS service discovery |
+| `--zeroconf-timeout <sec>` | `2` | Timeout in seconds for service discovery |
+| `--zeroconf-name <name>` | `SuperCollider` | Service name to look for |
+
+**Note:** Discovered OSC services are injected into the sclang environment as `NetAddr` objects and can be accessed via `NetAddr.zeroconfServices` or `NetAddr.findServiceNamed("SuperCollider")`.
 
 | REPL command | Description |
 |---|---|

@@ -1,0 +1,10 @@
+;; Synth definitions
+;; @tag dsp
+
+;; Simple synth
+(defsynth simple-sine (freq amp) (out:ar (sin-osc:ar freq amp)))
+
+;; Synth with controls
+(defsynth filtered-noise (amp cutoff) 
+  (let ((noise (white-noise:ar amp)))
+    (out:ar (lpf:ar noise cutoff))))

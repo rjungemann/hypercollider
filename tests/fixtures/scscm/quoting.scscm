@@ -1,0 +1,11 @@
+;; Quoting forms
+;; @tag core
+
+;; Quote a symbol
+'foo
+
+;; Quote a list
+'(1 2 3)
+
+;; Quoted function call
+'(+ 1 2)

@@ -1,0 +1,45 @@
+;; Function definitions and calls
+;; @tag core
+
+;; Simple function definition
+(defn square (x) (* x x))
+
+;; Function with multiple args
+(defn add (a b) (+ a b))
+
+;; Function with no args
+(defn get-pi () 3.14159)
+
+;; Function calls
+(square 5)
+(add 3 4)
+(get-pi)
+
+;; Nested calls
+(add (square 2) (square 3))
+
+;; Lambda (anonymous function)
+(fn (x) (* x x))
+
+;; Lambda with multiple args
+(fn (a b) (+ a b))
+
+;; Immediately invoked function expression
+((fn (x) (* x x)) 5)
+
+;; let binding
+(let ((x 10)) (* x x))
+
+(let ((a 5)
+      (b 3)) (+ a b))
+
+;; Nested let
+(let ((x 10))
+  (let ((y 5)) (+ x y)))
+
+;; var for mutable binding
+(var counter 0)
+(set! counter (+ counter 1))
+
+;; def for top-level binding
+(def my-value 42)

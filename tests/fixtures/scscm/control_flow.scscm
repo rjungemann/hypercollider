@@ -1,0 +1,17 @@
+;; Control flow forms
+;; @tag core
+
+;; if expression
+(if (== 1 1) "yes" "no")
+(if (< 5 3) "yes" "no")
+
+;; Nested if
+(if (== 1 1)
+  (if (== 2 2) "both true" "outer true")
+  "outer false")
+
+;; when expression (syntactic sugar for if)
+(when (== 1 1) "do this")
+
+;; cond expression - note: JS compiler uses different syntax
+;; Skipping cond for now as it may not be supported

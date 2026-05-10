@@ -508,11 +508,11 @@ hclang --no-zeroconf                          # disable browse; use localhost de
 
 ### Phase B1 — Advertise hcsynth (1–2 days)
 
-- [ ] `npm install bonjour-service` in `cli/`; add to `package.json`.
-- [ ] Create `cli/hc_zeroconf.js` with `advertiseServer()`.
-- [ ] Add `--no-zeroconf` / `--zeroconf-name` args to `hcsynth.js`.
-- [ ] Start advertisement after server bind; stop on teardown.
-- [ ] Extend `hc_oscquery.js` to call `advertiseServer({ oscQueryPort })` when
+- [x] `npm install bonjour-service` in `cli/`; add to `package.json`.
+- [x] Create `cli/hc_zeroconf.js` with `advertiseServer()`.
+- [x] Add `--no-zeroconf` / `--zeroconf-name` args to `hcsynth.js`.
+- [x] Start advertisement after server bind; stop on teardown.
+- [x] Extend `hc_oscquery.js` to call `advertiseServer({ oscQueryPort })` when
       `bonjour-service` is available (fail-silent if not installed).
 - [ ] **Acceptance**: `dns-sd -B _osc._udp local` (macOS) or
       `avahi-browse _osc._udp` (Linux) shows `"SuperCollider"` while
@@ -522,12 +522,12 @@ hclang --no-zeroconf                          # disable browse; use localhost de
 
 ### Phase B2 — sclang browsing (2–3 days)
 
-- [ ] Add `browseLan()` to `hc_zeroconf.js`.
-- [ ] Add `--no-zeroconf` / `--zeroconf-timeout` / `--zeroconf-name` flags to
+- [x] Add `browseLan()` to `hc_zeroconf.js`.
+- [x] Add `--no-zeroconf` / `--zeroconf-timeout` / `--zeroconf-name` flags to
       `hclang.js` and `hclang_repl.js`.
-- [ ] After hclang boots, start browse; inject `NetAddr._zeroconfFound` calls.
-- [ ] Create `src/class_library/HC/HCNetAddrZeroconf.sc`.
-- [ ] Add `HCNetAddrZeroconf.sc` to the class library pack / include path.
+- [x] After hclang boots, start browse; inject `NetAddr._zeroconfFound` calls.
+- [x] Create `src/class_library/HC/HCNetAddrZeroconf.sc`.
+- [x] Add `HCNetAddrZeroconf.sc` to the class library pack / include path.
 - [ ] **Acceptance**: running `hclang` with no `--scsynth-host` while hcsynth
       is advertising auto-connects and
       `NetAddr.zeroconfServices.postln` shows the discovered address.
@@ -535,7 +535,7 @@ hclang --no-zeroconf                          # disable browse; use localhost de
 
 ### Phase B3 — `ServerOptions.zeroConf` wiring (1 day)
 
-- [ ] Document that `ServerOptions.zeroConf` on the sclang side has no effect
+- [x] Document that `ServerOptions.zeroConf` on the sclang side has no effect
       on advertisement in WASM mode; advertisement is controlled by the hcsynth
       CLI flag `--no-zeroconf`.
 - [ ] Optionally: after hclang boots, read
@@ -545,11 +545,11 @@ hclang --no-zeroconf                          # disable browse; use localhost de
 
 ### Phase B4 — Browser IDE (3–5 days, stretch goal) (DEFERRED)
 
-- Add WebSocket relay in `bridge/server.js` that pipes `browseLan()` events
+- [ ] Add WebSocket relay in `bridge/server.js` that pipes `browseLan()` events
   to connected browsers.
-- Extend `sc_ide.html` OSCQuery panel with a "Discovered Services" list.
-- Auto-populate the URL input when a `_oscjson._tcp` service is found.
-- **Acceptance**: open the browser IDE; start hcsynth; the service appears
+- [ ] Extend `sc_ide.html` OSCQuery panel with a "Discovered Services" list.
+- [ ] Auto-populate the URL input when a `_oscjson._tcp` service is found.
+- [ ] **Acceptance**: open the browser IDE; start hcsynth; the service appears
   in the panel within 3 seconds without any manual URL entry.
 
 ---
@@ -632,9 +632,9 @@ unless a dependency is noted.
 
 ### Infrastructure
 
-- [ ] **`cli/package.json`** — run `npm install bonjour-service` inside `cli/`;
+- [x] **`cli/package.json`** — run `npm install bonjour-service` inside `cli/`;
       confirm it appears under `"dependencies"` at `^1.3.0` or later.
-- [ ] **`cli/package.json`** — add `"mdns": "^2.7.2"` to `"optionalDependencies"`
+- [x] **`cli/package.json`** — add `"mdns": "^2.7.2"` to `"optionalDependencies"`
       so native-binding users get full OS-stack integration without blocking the
       pure-JS path.
 - [ ] **`cli/package.json`** — add `"hc_zeroconf.js"` to the `"files"` array if
@@ -642,14 +642,14 @@ unless a dependency is noted.
 
 ### `cli/hc_zeroconf.js` (new file)
 
-- [ ] Create `cli/hc_zeroconf.js` with a `try/require('bonjour-service')` guard
+- [x] Create `cli/hc_zeroconf.js` with a `try/require('bonjour-service')` guard
       at the top; export `null`-safe stubs if the package is absent so callers
       never need to check.
-- [ ] Implement `advertiseServer({ name, udpPort, tcpPort, oscQueryPort, logger })`
+- [x] Implement `advertiseServer({ name, udpPort, tcpPort, oscQueryPort, logger })`
       — publishes one service per provided port; returns `{ unpublish() }`.
-- [ ] Implement `browseLan({ onFound, onLost, type, logger })` — returns
+- [x] Implement `browseLan({ onFound, onLost, type, logger })` — returns
       `{ stop() }`; emits `onFound(name, host, port, protocol)` and `onLost(name)`.
-- [ ] Add a `noop` export (`advertiseServer: () => ({ unpublish: async () => {} })`,
+- [x] Add a `noop` export (`advertiseServer: () => ({ unpublish: async () => {} })`,
       `browseLan: () => ({ stop: () => {} })`) as the fallback when
       `bonjour-service` is not installed, so all callers are always safe.
 - [ ] Verify on macOS: `dns-sd -B _osc._udp local.` lists the published service
@@ -659,15 +659,15 @@ unless a dependency is noted.
 
 ### `cli/hcsynth.js`
 
-- [ ] Add `--no-zeroconf` boolean flag (default: `false` in `--server` mode,
+- [x] Add `--no-zeroconf` boolean flag (default: `false` in `--server` mode,
       `true` in all other modes). Document in the arg-parsing comment block.
-- [ ] Add `--zeroconf-name <string>` flag (default: `"SuperCollider"`).
-- [ ] In `runServer()`, after the UDP/TCP sockets bind successfully, call
+- [x] Add `--zeroconf-name <string>` flag (default: `"SuperCollider"`).
+- [x] In `runServer()`, after the UDP/TCP sockets bind successfully, call
       `advertiseServer({ name, udpPort, tcpPort, oscQueryPort, logger })`.
       Wrap in `try/catch`; log a warning and continue on failure — never let
       mDNS failure crash the server.
-- [ ] Store the returned handle in a variable accessible to the teardown path.
-- [ ] In the existing `SIGINT` / `SIGTERM` / `uncaughtException` teardown block,
+- [x] Store the returned handle in a variable accessible to the teardown path.
+- [x] In the existing `SIGINT` / `SIGTERM` / `uncaughtException` teardown block,
       call `await zeroconf.unpublish()` before `process.exit()`.
 - [ ] Smoke-test: `node cli/hcsynth.js --server --udp-port 57110` → `dns-sd -B
       _osc._udp local.` shows `SuperCollider`.
@@ -678,14 +678,14 @@ unless a dependency is noted.
 
 ### `cli/hc_oscquery.js`
 
-- [ ] Inside `createOscQueryServer()`, after the HTTP server is listening,
+- [x] Inside `createOscQueryServer()`, after the HTTP server is listening,
       require `hc_zeroconf` and call `advertiseServer({ name: opts.serviceName ||
       'hcsynth', oscQueryPort: port, logger })`.
-- [ ] Pass `osc_port` and `osc_transport` as a TXT record on the
+- [x] Pass `osc_port` and `osc_transport` as a TXT record on the
       `_oscjson._tcp` service per the OSCQuery spec.
-- [ ] Store the returned handle; call `unpublish()` inside the `close()` method
+- [x] Store the returned handle; call `unpublish()` inside the `close()` method
       (or wherever the HTTP server is stopped).
-- [ ] Remove or update the existing comment on line 71 that says mDNS is not
+- [x] Remove or update the existing comment on line 71 that says mDNS is not
       implemented.
 - [ ] Smoke-test: `dns-sd -B _oscjson._tcp local.` shows `hcsynth` while the
       OSCQuery server is running.
@@ -694,19 +694,19 @@ unless a dependency is noted.
 
 ### `cli/hclang.js`
 
-- [ ] Add `--no-zeroconf` flag (default `false`).
-- [ ] Add `--zeroconf-timeout <seconds>` flag (default `2`).
-- [ ] Add `--zeroconf-name <string>` flag (default `"SuperCollider"`).
-- [ ] After hclang has completed the boot sequence (post `interpretPrintCmdLine`
+- [x] Add `--no-zeroconf` flag (default `false`).
+- [x] Add `--zeroconf-timeout <seconds>` flag (default `2`).
+- [x] Add `--zeroconf-name <string>` flag (default `"SuperCollider"`).
+- [x] After hclang has completed the boot sequence (post `interpretPrintCmdLine`
       or equivalent ready signal), call `browseLan({ type: 'osc', onFound,
       onLost, logger })` unless `--scsynth-host` was explicitly provided or
       `--no-zeroconf` is set.
-- [ ] In the `onFound` callback, build and call
+- [x] In the `onFound` callback, build and call
       `hc_wasm_eval_execute("NetAddr._zeroconfFound(\"<name>\", \"<host>\",
       <port>);")` using the existing eval channel.
-- [ ] In the `onLost` callback, call
+- [x] In the `onLost` callback, call
       `hc_wasm_eval_execute("NetAddr._zeroconfLost(\"<name>\");")`.
-- [ ] Push the browser's `stop()` into the cleanup array so it is torn down on
+- [x] Push the browser's `stop()` into the cleanup array so it is torn down on
       process exit.
 - [ ] Smoke-test: with hcsynth advertising, run `hclang` with no
       `--scsynth-host`; confirm `NetAddr.zeroconfServices.postln` in the SC
@@ -714,26 +714,26 @@ unless a dependency is noted.
 
 ### `cli/hclang_repl.js`
 
-- [ ] Mirror all three new flags (`--no-zeroconf`, `--zeroconf-timeout`,
+- [x] Mirror all three new flags (`--no-zeroconf`, `--zeroconf-timeout`,
       `--zeroconf-name`) from `hclang.js`.
-- [ ] Apply the same `browseLan()` call and SC eval injection after the REPL
+- [x] Apply the same `browseLan()` call and SC eval injection after the REPL
       interpreter is ready.
 - [ ] Smoke-test: start `hclang_repl`; type
       `NetAddr.zeroconfServices.postln` → shows discovered hcsynth address.
 
 ### `src/class_library/HC/HCNetAddrZeroconf.sc` (new file)
 
-- [ ] Create the file with the `+ NetAddr { ... }` extension class shown in Part 2.
-- [ ] Implement `*initClass` — initialise `zeroconfServices` as an empty
+- [x] Create the file with the `+ NetAddr { ... }` extension class shown in Part 2.
+- [x] Implement `*initClass` — initialise `zeroconfServices` as an empty
       `Dictionary`.
-- [ ] Implement `*_zeroconfFound { |name, host, port|` — store in dictionary,
+- [x] Implement `*_zeroconfFound { |name, host, port|` — store in dictionary,
       call `this.changed(\serviceFound, ...)`, auto-update matching `Server`
       instances by name.
-- [ ] Implement `*_zeroconfLost { |name|` — remove from dictionary, call
+- [x] Implement `*_zeroconfLost { |name|` — remove from dictionary, call
       `this.changed(\serviceLost, ...)`.
-- [ ] Implement `*findServiceNamed { |name, action|` — synchronous fast-path
+- [x] Implement `*findServiceNamed { |name, action|` — synchronous fast-path
       if already known; async dependant path otherwise.
-- [ ] Verify the file is included by the class library pack:
+- [x] Verify the file is included by the class library pack:
       - Check `tools/pack_sc_classlib.js` for the HC extension directory glob;
         add `src/class_library/HC/` if absent.
       - Or add an explicit entry for `HCNetAddrZeroconf.sc`.
@@ -747,7 +747,7 @@ unless a dependency is noted.
 
 ### `docs/CLI_REFERENCE.md`
 
-- [ ] Add a **Zeroconf / mDNS** section documenting:
+- [x] Add a **Zeroconf / mDNS** section documenting:
   - `--no-zeroconf` on `hcsynth` and `hclang` / `hclang_repl`
   - `--zeroconf-name` on `hcsynth` (advertisement name)
   - `--zeroconf-name` on `hclang` (service name to look for)
@@ -757,19 +757,19 @@ unless a dependency is noted.
 
 ### `docs/WASM_POST_LAUNCH_ENHANCEMENTS.md`
 
-- [ ] Find the Phase 2.3 OSCQuery row that says "mDNS advertisement deferred"
+- [x] Find the Phase 2.3 OSCQuery row that says "mDNS advertisement deferred"
       and update it to reference `BONJOUR_PLAN.md`.
-- [ ] After B1 is complete, mark `_oscjson._tcp` advertisement as done in that
+- [x] After B1 is complete, mark `_oscjson._tcp` advertisement as done in that
       table.
-- [ ] After B2 is complete, add a row for sclang browsing / `NetAddr.zeroconfServices`.
+- [x] After B2 is complete, add a row for sclang browsing / `NetAddr.zeroconfServices`.
 
 ### Tests (`cli/tests/`)
 
-- [ ] In `test_hcsynth_udp.js` (or a new `test_hcsynth_mdns.js`): start hcsynth
+- [x] In `test_hcsynth_udp.js` (or a new `test_hcsynth_mdns.js`): start hcsynth
       with `--server --udp-port 57110`, wait 500 ms, use `bonjour-service` in
       the test to browse for `_osc._udp`; assert service is found within 3 s.
-- [ ] Assert service disappears within 5 s after hcsynth is stopped.
-- [ ] Assert `--no-zeroconf` suppresses the service (nothing found within 2 s).
+- [x] Assert service disappears within 5 s after hcsynth is stopped.
+- [x] Assert `--no-zeroconf` suppresses the service (nothing found within 2 s).
 - [ ] In `test_hclang.js` (or new file): start hcsynth advertising, start
       hclang, send `NetAddr.zeroconfServices.size.postln` via eval, assert
       output is `> 0`.

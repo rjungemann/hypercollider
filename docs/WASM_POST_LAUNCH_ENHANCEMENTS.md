@@ -23,7 +23,12 @@ For the full feature surface area, see
 - **Phase 2.2 — MIDI & OSC input** (2026-05-07). Browser MIDI Learn panel +
   CLI `.midi-map` commands.
 - **Phase 2.3 — OSCQuery** (2026-05-07). `hcsynth --oscquery-port` HTTP
-  namespace server.
+  namespace server with `_oscjson._tcp` mDNS advertisement.
+- **Phase 2.6 — Bonjour/mDNS service discovery** (2026-05-09). `hcsynth`
+  advertises `_osc._udp`, `_osc._tcp`, and `_oscjson._tcp` services via mDNS.
+  `hclang` and `hclang_repl` browse for OSC services and inject `NetAddr`
+  objects into the sclang environment via `NetAddr._zeroconfFound` and
+  `NetAddr.findServiceNamed`.
 - **Phase 2.4 — Preset management** (2026-05-07). CLI `.preset` commands +
   browser preset panel.
 - **Phase 2.5 — Plugin Tier 2 & 3** (sc3-plugins integrated; see

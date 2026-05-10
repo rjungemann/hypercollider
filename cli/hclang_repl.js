@@ -17,6 +17,7 @@ const { createUnixBridge } = require('./hc_unix');
 const { MidiLearnManager } = require('./hc_midi_learn');
 const { PresetManager } = require('./hc_preset');
 const { compileScscmText } = require('./lhc_compile');
+const { browseLan } = require('./hc_zeroconf');
 
 function tryCreateMidiBridge(sclang) {
   try {
@@ -46,6 +47,10 @@ function parseArgs(argv) {
     protocol: 'udp',
     // 2.4 Presets
     presetDir: null,
+    // zeroconf/mDNS fields
+    noZeroconf: false,
+    zeroconfTimeout: 2,
+    zeroconfName: 'SuperCollider',
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -70,6 +75,9 @@ function parseArgs(argv) {
       out.protocol = proto;
     }
     else if (a === '--preset-dir') out.presetDir = next();
+    else if (a === '--no-zeroconf') out.noZeroconf = true;
+    else if (a === '--zeroconf-timeout') out.zeroconfTimeout = parseInt(next(), 10);
+    else if (a === '--zeroconf-name') out.zeroconfName = next();
     else if (a === '--version' || a === '-v') {
       console.log(`hclang_repl ${getVersion()}`);
       process.exit(0);
@@ -101,6 +109,11 @@ Options:
   --scsynth-js <path>          Path to hcsynth.js (in-process mode only)
   --verbose                    Print all sclang post window output
   --preset-dir <path>          Directory for preset JSON files (default: ~/.sc_presets)
+
+Service discovery options:
+  --no-zeroconf               Disable mDNS service discovery / auto-connect
+  --zeroconf-timeout <sec>     Timeout in seconds for service discovery (default: 2)
+  --zeroconf-name <name>      Service name to look for (default: "SuperCollider")
 
 Live network options:
   --scsynth-host <addr>        External scsynth host (enables live network mode)
@@ -217,6 +230,29 @@ async function runReplInProcessMode(opts) {
 
   const initRc = sclang._hc_wasm_eval_boot_sequence();
   if (initRc !== 0) throw new Error(`hc_wasm_eval_boot_sequence failed (${initRc})`);
+
+  // mDNS service discovery (Bonjour / Zeroconf)
+  let serviceBrowser = null;
+  if (!opts.noZeroconf) {
+    // Start browsing for OSC services
+    serviceBrowser = browseLan({
+      onFound(name, host, port, protocol) {
+        if (protocol === 'udp' && name === opts.zeroconfName) {
+          const code = `NetAddr._zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
+          replEvalCode(code);
+        }
+      },
+      onLost(name) {
+        const code = `NetAddr._zeroconfLost(${JSON.stringify(name)});`;
+        replEvalCode(code);
+      },
+      type: 'osc',
+      logger: { info: (msg) => console.log(msg), warn: (msg) => console.warn(msg) },
+    });
+
+    // Wait for services to be discovered
+    await new Promise(resolve => setTimeout(resolve, opts.zeroconfTimeout * 1000));
+  }
 
   const serverInit =
     'Server.default.statusWatcher.serverRunning = true; Server.default.statusWatcher.notified = true;';
@@ -344,6 +380,7 @@ async function runReplInProcessMode(opts) {
 
   runReplLoop(opts, sclang, inProcessInfo, { recordState, stopRecording }, midiLearn, presetManager, () => {
     running = false;
+    if (serviceBrowser) serviceBrowser.stop();
     scsynth._free(outPtr);
     scsynth._hc_wasm_world_destroy(worldId);
     speaker.end();
@@ -461,6 +498,35 @@ async function runReplNetworkMode(opts) {
   const initRc = sclang._hc_wasm_eval_boot_sequence();
   if (initRc !== 0) throw new Error(`hc_wasm_eval_boot_sequence failed (${initRc})`);
 
+  // Helper to evaluate SC code
+  const replEvalCode = (code) => {
+    const p = allocCString(sclang, code);
+    try { sclang._hc_wasm_eval_execute(p, code.length); } finally { sclang._free(p); }
+  };
+
+  // mDNS service discovery (Bonjour / Zeroconf)
+  let serviceBrowser = null;
+  if (!opts.noZeroconf) {
+    // Start browsing for OSC services (even in network mode, to discover other servers)
+    serviceBrowser = browseLan({
+      onFound(name, host, port, protocol) {
+        if (protocol === 'udp' && name === opts.zeroconfName) {
+          const code = `NetAddr._zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
+          replEvalCode(code);
+        }
+      },
+      onLost(name) {
+        const code = `NetAddr._zeroconfLost(${JSON.stringify(name)});`;
+        replEvalCode(code);
+      },
+      type: 'osc',
+      logger: { info: (msg) => console.log(msg), warn: (msg) => console.warn(msg) },
+    });
+
+    // Wait for services to be discovered
+    await new Promise(resolve => setTimeout(resolve, opts.zeroconfTimeout * 1000));
+  }
+
   const serverInit =
     'Server.default.statusWatcher.serverRunning = true; Server.default.statusWatcher.notified = true;';
   {
@@ -485,6 +551,7 @@ async function runReplNetworkMode(opts) {
   const presetManager = new PresetManager({ dir: opts.presetDir || undefined });
 
   runReplLoop(opts, sclang, networkInfo, null, null, presetManager, () => {
+    if (serviceBrowser) serviceBrowser.stop();
     if (tcpSocket) tcpSocket.destroy();
     if (udpClient) udpClient.close();
     process.exit(0);

@@ -68,7 +68,7 @@ const SCSYNTH_NAMESPACE = {
  *   GET /<address> → single address node (e.g. GET /s_new)
  *
  * CORS headers allow the browser IDE to fetch without a proxy.
- * No WebSocket or mDNS — those require additional npm packages not in cli/package.json.
+ * mDNS advertisement for _oscjson._tcp is handled by hcsynth.js via hc_zeroconf.js.
  *
  * @param {object} opts
  * @param {number}  opts.port      - HTTP port to listen on

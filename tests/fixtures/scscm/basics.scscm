@@ -1,0 +1,29 @@
+;; Basic scscm forms - core language features
+;; @tag core
+
+;; Numbers
+42
+3.14159
+-10
++5
+
+;; Strings
+"hello world"
+"escaped \" quote"
+
+;; Booleans
+true
+false
+
+;; Nil
+nil
+
+;; Symbols
+foo
+bar
+some-symbol
+
+;; Keywords
+:freq
+:amp
+:some-keyword

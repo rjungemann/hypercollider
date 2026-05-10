@@ -11,6 +11,7 @@ const { createUdpClient } = require('./hc_net');
 const { createMidiBridge } = require('./hc_midi');
 const { createUnixBridge } = require('./hc_unix');
 const { compileScscmText } = require('./lhc_compile');
+const { browseLan } = require('./hc_zeroconf');
 
 function parseArgs(argv) {
   const out = {
@@ -31,6 +32,10 @@ function parseArgs(argv) {
     lang: null,
     scscmDebug: false,
     extraClassPaths: [],
+    // zeroconf/mDNS fields
+    noZeroconf: false,
+    zeroconfTimeout: 2,
+    zeroconfName: 'SuperCollider',
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -59,6 +64,9 @@ function parseArgs(argv) {
     else if (a === '--no-snapshot') out.noSnapshot = true;
     else if (a === '--snapshot-out') out.snapshotOut = next();
     else if (a === '--extra-class-path') out.extraClassPaths.push(next());
+    else if (a === '--no-zeroconf') out.noZeroconf = true;
+    else if (a === '--zeroconf-timeout') out.zeroconfTimeout = parseInt(next(), 10);
+    else if (a === '--zeroconf-name') out.zeroconfName = next();
     else if (a === '--version' || a === '-v') {
       console.log(`hclang ${getVersion()}`);
       process.exit(0);
@@ -220,6 +228,11 @@ Live routing options:
 Compilation options:
   --lang <scscm|scd>           Force input language (auto-detected by default)
   --scscm-debug                Write compiled sclang to .compiled.sc for inspection
+
+Service discovery options:
+  --no-zeroconf               Disable mDNS service discovery / auto-connect
+  --zeroconf-timeout <sec>     Timeout in seconds for service discovery (default: 2)
+  --zeroconf-name <name>      Service name to look for (default: "SuperCollider")
 
 Shared options:
   --verbosity <level>          Logging verbosity: -2 (silent) to 2 (debug)
@@ -516,10 +529,51 @@ async function runSclangCli(opts) {
     );
   }
 
+  // mDNS service discovery (Bonjour / Zeroconf)
+  // Start browsing for OSC services if no explicit --scsynth-host was given
+  let serviceBrowser = null;
+
+  if (!hasExternalRoute && !opts.noZeroconf) {
+    // Start browsing for OSC services
+    serviceBrowser = browseLan({
+      onFound(name, host, port, protocol) {
+        // Inject SC code to notify sclang about discovered service
+        // Only handle UDP for now (SuperCollider traditionally uses UDP)
+        if (protocol === 'udp' && name === opts.zeroconfName) {
+          const code = `NetAddr._zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
+          const p = allocCString(sclang, code);
+          try {
+            sclang._hc_wasm_eval_execute(p, code.length);
+          } finally {
+            sclang._free(p);
+          }
+        }
+      },
+      onLost(name) {
+        const code = `NetAddr._zeroconfLost(${JSON.stringify(name)});`;
+        const p = allocCString(sclang, code);
+        try {
+          sclang._hc_wasm_eval_execute(p, code.length);
+        } finally {
+          sclang._free(p);
+        }
+      },
+      type: 'osc',
+      logger,
+    });
+
+    // Wait for services to be discovered before proceeding
+    // This gives time for the mDNS browse to find existing services
+    await new Promise(resolve => setTimeout(resolve, opts.zeroconfTimeout * 1000));
+  }
+
   if (opts.printReady) {
     process.stdout.write('hclang:ready\n');
     // Startup-only mode: exit without evaluating any script.
-    if (!opts.script) return { outputPath: null, packetCount: 0, routed: false };
+    if (!opts.script) {
+      if (serviceBrowser) serviceBrowser.stop();
+      return { outputPath: null, packetCount: 0, routed: false };
+    }
   }
 
   const scriptPath = path.resolve(opts.script);
@@ -606,6 +660,10 @@ async function runSclangCli(opts) {
 
   if (udpClient) {
     udpClient.close();
+  }
+
+  if (serviceBrowser) {
+    serviceBrowser.stop();
   }
 
   const errText = errLines.join('');

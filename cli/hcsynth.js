@@ -8,6 +8,7 @@ const { instantiateEmscriptenModule, maybeRewriteDrecvTarget, maybeConvertIntern
 const { getVersion, Logger, VERBOSITY_NORMAL } = require('./hc_utils');
 const { startServers } = require('./hc_net');
 const { createOscQueryServer } = require('./hc_oscquery');
+const { advertiseServer } = require('./hc_zeroconf');
 
 function parseArgs(argv) {
   const out = {
@@ -29,6 +30,9 @@ function parseArgs(argv) {
     deviceRoutes: [],
     oscqueryPort: null,
     noOscquery: false,
+    // zeroconf/mDNS fields
+    noZeroconf: false,
+    zeroconfName: 'SuperCollider',
     // profiling
     profileBlocks: null,
     // shared fields
@@ -74,6 +78,8 @@ function parseArgs(argv) {
     }
     else if (a === '--oscquery-port') out.oscqueryPort = parseInt(next(), 10);
     else if (a === '--no-oscquery') out.noOscquery = true;
+    else if (a === '--no-zeroconf') out.noZeroconf = true;
+    else if (a === '--zeroconf-name') out.zeroconfName = next();
     else if (a === '--profile') out.profileBlocks = parseInt(next(), 10);
     else if (a === '--version' || a === '-v') {
       console.log(`hcsynth ${getVersion()}`);
@@ -161,6 +167,8 @@ Server options:
                                  (two stereo speakers from a 4-channel world)
   --oscquery-port <port>         Start an OSCQuery HTTP server on this port (default: --udp-port + 1)
   --no-oscquery                  Disable the OSCQuery HTTP server
+  --no-zeroconf                 Disable mDNS service advertisement (default: enabled in server mode)
+  --zeroconf-name <name>        Service name for mDNS advertisement (default: "SuperCollider")
 
 Shared options:
   --sample-rate <hz>             Sample rate in Hz (default: 48000)
@@ -466,6 +474,23 @@ async function runScsynthServer(opts) {
     }
   }
 
+  // mDNS service advertisement (Bonjour / Zeroconf)
+  let zeroconf = null;
+  if (!opts.noZeroconf) {
+    try {
+      const oqPort = oscQueryServer ? (opts.oscqueryPort || ((opts.udpPort || 57110) + 1)) : null;
+      zeroconf = advertiseServer({
+        name: opts.zeroconfName || 'SuperCollider',
+        udpPort: opts.udpPort || null,
+        tcpPort: opts.tcpPort || null,
+        oscQueryPort: oqPort,
+        logger,
+      });
+    } catch (e) {
+      logger.warn(`mDNS advertisement failed: ${e.message || e}`);
+    }
+  }
+
   try {
     await startServers(scsynth, worldId, {
       udpPort: opts.udpPort || null,
@@ -477,6 +502,7 @@ async function runScsynthServer(opts) {
   } finally {
     if (profileInterval !== null) clearInterval(profileInterval);
     if (oscQueryServer) { try { await oscQueryServer.close(); } catch (_) {} }
+    if (zeroconf) { try { await zeroconf.unpublish(); } catch (_) {} }
     audioRunning = false;
     if (outPtr !== null) scsynth._free(outPtr);
     for (const route of audioRoutes) {
