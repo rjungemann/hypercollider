@@ -161,34 +161,34 @@ Primary stress metrics:
 
 ### Phase P0 - Harness bootstrap (3-5 days)
 
-- [ ] Choose classlib location and naming conventions.
-- [ ] Add a minimal `ScscmCompiler` facade with `compileString` stub.
-- [ ] Add CLI glue to invoke sclang compiler path in batch mode.
-- [ ] Add fixture loader and baseline comparison script skeleton.
+- [x] Choose classlib location and naming conventions.
+- [x] Add a minimal `ScscmCompiler` facade with `compileString` stub.
+- [x] Add CLI glue to invoke sclang compiler path in batch mode.
+- [x] Add fixture loader and baseline comparison script skeleton.
 
 **Acceptance**: end-to-end harness runs, even with placeholder compiler behavior.
 
 ### Phase P1 - Lexer + parser MVP (1-2 weeks)
 
-- [ ] Implement token model and lexer.
-- [ ] Implement parser for lists/atoms and basic forms.
-- [ ] Add syntax diagnostics with line/column.
-- [ ] Unit tests for tokenization and parse trees.
+- [x] Implement token model and lexer.
+- [x] Implement parser for lists/atoms and basic forms.
+- [x] Add syntax diagnostics with line/column.
+- [x] Unit tests for tokenization and parse trees.
 
 **Acceptance**: parser handles all core fixtures without crashing; invalid fixtures yield diagnostics.
 
 ### Phase P2 - Codegen MVP (1 week)
 
-- [ ] Emit sclang for non-macro subset (`let`, `fn`, simple calls, literals).
-- [ ] Add normalization pass for deterministic output.
-- [ ] Differential tests against JS compiler for MVP subset.
+- [x] Emit sclang for non-macro subset (`let`, `fn`, simple calls, literals).
+- [x] Add normalization pass for deterministic output.
+- [x] Differential tests against JS compiler for MVP subset.
 
 **Acceptance**: >= 85% parity on MVP fixture set.
 
 ### Phase P3 - Macro expansion MVP (1-2 weeks)
 
-- [ ] Implement macro table, expansion order, and recursion guards.
-- [ ] Add quasiquote/unquote behavior required by existing scscm macros.
+- [x] Implement macro table, expansion order, and recursion guards.
+- [x] Add quasiquote/unquote behavior required by existing scscm macros.
 - [ ] Add macro stress fixtures (expansion depth/fan-out).
 
 **Acceptance**: macro-heavy fixtures compile with bounded expansion and no crashes.

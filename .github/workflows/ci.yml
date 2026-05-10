@@ -106,6 +106,12 @@ jobs:
           fi
           cp src/testsuite/server/supernova/help_out.scsyndef tests/
 
+      - name: Build CLI bundle
+        run: cmake --build build/wasm --target cli -j$(nproc)
+
+      - name: Run Quarks CLI tests (Track A - Node.js)
+        run: bash tests/quarks/test_runner.sh --track A --ci
+
       - name: Run CLI tests
         run: |
           node tests/test_hc.js

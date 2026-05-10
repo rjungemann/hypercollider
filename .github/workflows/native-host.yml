@@ -187,6 +187,23 @@ jobs:
           if ($out -notmatch "(?m)^42")        { Write-Error "missing 42";       exit 1 }
           if ($out -notmatch "(?m)^6")         { Write-Error "missing 6";        exit 1 }
 
+      # ── Quarks CLI Tests (POSIX) ────────────────────────────────────────
+      - name: Quarks CLI tests (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          # Build the WASM artifacts needed for Node.js track
+          cmake --build build/wasi --target hclang -j
+          # Copy hclang.wasm to cli directory for Node.js tests
+          mkdir -p build/wasm/cli
+          cp build/wasi/lang/hclang/hclang.wasm build/wasm/cli/
+          cp build/wasi/lang/hclang/hclang.data build/wasm/cli/ 2>/dev/null || true
+          cp build/wasi/lang/hclang/hclang_classlib.pack build/wasm/cli/ 2>/dev/null || true
+          # Build Node.js CLI bundle
+          cmake --build build/wasm --target cli -j
+          # Run quarks tests
+          bash tests/quarks/test_runner.sh --track both --ci
+
       # ── Tagged-release artefacts ───────────────────────────────────────────
       # Only on `git push v*` tags. One artefact per OS so each native
       # binary pair can be downloaded standalone from the Release UI.

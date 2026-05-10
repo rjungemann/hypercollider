@@ -550,6 +550,26 @@ bench-update-baselines: build-wamr-host
     bash bench/run_bench.sh --toolchains wamr-full --patches sine,fm --phases cold,warm
     node bench/check_baselines.js --update
 
+# ── Quarks CLI Tests ─────────────────────────────────────────────────────────
+# Runs the full Quarks CLI test matrix described in docs/QUARKS_CLI_PLAN.md.
+# Tests both Node.js (Track A) and WAMR (Track B) implementations.
+# See docs/QUARKS_CLI_PLAN.md for test details.
+
+# Run all Quarks CLI tests (both tracks)
+test-quarks: build-cli build-wamr-host
+    @echo "Running Quarks CLI tests..."
+    bash {{TESTSUITE_DIR}}/quarks/test_runner.sh --track both --ci
+
+# Run only Track A (Node.js) quarks tests
+test-quarks-a: build-cli
+    @echo "Running Quarks CLI Track A (Node.js) tests..."
+    bash {{TESTSUITE_DIR}}/quarks/test_runner.sh --track A --ci
+
+# Run only Track B (WAMR) quarks tests
+test-quarks-b: build-wamr-host
+    @echo "Running Quarks CLI Track B (WAMR) tests..."
+    bash {{TESTSUITE_DIR}}/quarks/test_runner.sh --track B --ci
+
 # ── Housekeeping ──────────────────────────────────────────────────────────────
 
 # Guard against adding new no-op WASM stubs without updating allowlist

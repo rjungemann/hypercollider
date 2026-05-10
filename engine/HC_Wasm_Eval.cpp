@@ -473,8 +473,13 @@ extern "C" int hc_wasm_quarks_available() {
     return g_quarks_dir_registered ? 1 : 0;
 }
 #elif defined(SC_WASM)
-// Emscripten path: check for JS proxy via emscripten
+// Emscripten path: check for unix bridge (Node.js) or JS proxy (browser)
 EM_JS(int, hc_wasm_quarks_available, (), {
+    // In Node.js CLI, the unix bridge is available
+    if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+        return 1;
+    }
+    // In browser, check for git proxy
     if (typeof window !== 'undefined' && window.__hclang_git_proxy) {
         return 1;
     }
