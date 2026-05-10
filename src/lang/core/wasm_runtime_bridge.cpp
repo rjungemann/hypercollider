@@ -24,6 +24,7 @@
 #include "symbol.h"
 #include "filesystem.hpp"
 #include "sc_base.h"
+#include "HC_Wasm_Eval.h"
 #ifndef SC_WASM_WASI
 #include <emscripten/val.h>
 #endif
@@ -73,6 +74,15 @@ void hc_host_error(const char* text, int len);
 // otherwise.
 __attribute__((import_module("env"), import_name("hc_host_poll_interrupt")))
 int32_t hc_host_poll_interrupt(void);
+// Quarks CLI: Host execution functions for command execution from WASM.
+// hc_host_exec: run a shell command, return exit code.
+__attribute__((import_module("env"), import_name("hc_host_exec")))
+int32_t hc_host_exec(const char* cmd, int32_t len);
+// hc_host_exec_capture: run a shell command, capture stdout.
+// Returns exit code. Output is written to the buffer at out_ptr (max out_len bytes).
+// Actual bytes written is stored at bytes_written_ptr.
+__attribute__((import_module("env"), import_name("hc_host_exec_capture")))
+int32_t hc_host_exec_capture(const char* cmd, int32_t len, char* out_ptr, int32_t out_len, int32_t* bytes_written_ptr);
 }
 #endif
 
@@ -201,6 +211,49 @@ static bool g_warned_custom_ports = false;
 static bool g_warned_close_gui = false;
 static bool g_warned_midi_prims = false;
 static bool g_warned_unix_bridge_missing = false;
+
+// ============================================================================
+// PIPE BUFFER MANAGEMENT
+// ============================================================================
+// Shared pipe buffer table for both Emscripten and WASI paths.
+// Used by Pipe.callSync and UnixCmdGetStdOut to buffer command output
+// for line-by-line reading. 1-based slot indexing.
+
+struct WasmPipeBuffer {
+    std::string output;
+    size_t pos;
+    bool open;
+};
+
+static WasmPipeBuffer g_pipe_buffers[8] = {};
+
+static int allocPipeBuffer() {
+    for (int i = 0; i < 8; ++i) {
+        if (!g_pipe_buffers[i].open) {
+            g_pipe_buffers[i].output.clear();
+            g_pipe_buffers[i].pos = 0;
+            g_pipe_buffers[i].open = true;
+            return i + 1; // 1-based
+        }
+    }
+    return 0; // no free slot
+}
+
+static void freePipeBuffer(int slot) {
+    if (slot >= 1 && slot <= 8) {
+        g_pipe_buffers[slot - 1].output.clear();
+        g_pipe_buffers[slot - 1].pos = 0;
+        g_pipe_buffers[slot - 1].open = false;
+    }
+}
+
+static WasmPipeBuffer* getPipeBuffer(int slot) {
+    if (slot >= 1 && slot <= 8 && g_pipe_buffers[slot - 1].open) {
+        return &g_pipe_buffers[slot - 1];
+    }
+    return nullptr;
+}
+
 static int g_wasm_unix_errno = 0;
 
 static PyrSymbol* s_unixCmdAction = nullptr;
@@ -724,6 +777,155 @@ static int prArray_UnixCmdGetStdOut_Wasm(VMGlobals* g, int numArgsPushed) {
 #endif
 }
 
+// ============================================================================
+// PIPE PRIMITIVES (for Pipe.callSync compatibility)
+// ============================================================================
+
+static int prPipeOpen_Wasm(VMGlobals* g, int numArgsPushed) {
+    (void)numArgsPushed;
+    PyrSlot* callerSlot = g->sp - 1;
+    PyrSlot* postOutputSlot = g->sp;
+
+    auto [error, command] = slotStrStdStrVal(callerSlot);
+    if (error != errNone) {
+        return error;
+    }
+
+    int slot = allocPipeBuffer();
+    if (!slot) {
+        g_wasm_unix_errno = ENFILE; // Too many open pipes
+        return errFailed;
+    }
+
+#ifndef SC_WASM_WASI
+    auto bridge = getUnixBridge();
+    if (bridge.isUndefined()) {
+        freePipeBuffer(slot);
+        return failUnixBridgeUnavailable();
+    }
+
+    try {
+        emscripten::val result = bridge.call<emscripten::val>("runCommandCapture", command);
+        if (result.isUndefined() || result.isNull()) {
+            g_wasm_unix_errno = EIO;
+            freePipeBuffer(slot);
+            return errFailed;
+        }
+
+        bool ok = false;
+        if (!result["ok"].isUndefined() && !result["ok"].isNull()) {
+            ok = result["ok"].as<bool>();
+        }
+
+        int reportedErrno = 0;
+        if (!result["errno"].isUndefined() && !result["errno"].isNull()) {
+            reportedErrno = result["errno"].as<int>();
+        }
+
+        if (!ok) {
+            g_wasm_unix_errno = (reportedErrno > 0) ? reportedErrno : mapUnixBridgeErrno(bridge);
+            freePipeBuffer(slot);
+            return errFailed;
+        }
+
+        std::string stdoutText;
+        if (!result["stdout"].isUndefined() && !result["stdout"].isNull()) {
+            stdoutText = result["stdout"].as<std::string>();
+        }
+
+        WasmPipeBuffer* buffer = &g_pipe_buffers[slot - 1];
+        buffer->output = stdoutText;
+        buffer->pos = 0;
+
+        g_wasm_unix_errno = 0;
+        SetInt(callerSlot, slot);
+        return errNone;
+    } catch (...) {
+        g_wasm_unix_errno = mapUnixBridgeErrno(bridge);
+        freePipeBuffer(slot);
+        return errFailed;
+    }
+#else
+    // WASI path: use hc_host_exec_capture
+    // Allocate a temporary buffer for host capture
+    constexpr size_t kCaptureBufferSize = 65536;
+    static char capture_buffer[kCaptureBufferSize];
+    int32_t bytes_written = 0;
+    
+    int32_t exit_code = hc_host_exec_capture(command.c_str(), (int32_t)command.size(),
+                                               capture_buffer, (int32_t)kCaptureBufferSize,
+                                               &bytes_written);
+    
+    if (exit_code != 0) {
+        g_wasm_unix_errno = EIO;
+        freePipeBuffer(slot);
+        return errFailed;
+    }
+
+    WasmPipeBuffer* buffer = &g_pipe_buffers[slot - 1];
+    buffer->output.assign(capture_buffer, bytes_written);
+    buffer->pos = 0;
+
+    g_wasm_unix_errno = 0;
+    SetInt(callerSlot, slot);
+    return errNone;
+#endif
+}
+
+static int prFile_GetLine_Wasm(VMGlobals* g, int numArgsPushed) {
+    (void)numArgsPushed;
+    PyrSlot* callerSlot = g->sp - 1;
+    PyrSlot* resultSlot = g->sp;
+
+    int slot = 0;
+    if (slotIntVal(callerSlot, &slot) != errNone) {
+        return errWrongType;
+    }
+
+    WasmPipeBuffer* buffer = getPipeBuffer(slot);
+    if (!buffer) {
+        g_wasm_unix_errno = EBADF; // Bad file descriptor
+        return errFailed;
+    }
+
+    if (buffer->pos >= buffer->output.size()) {
+        // EOF - return empty string
+        g_wasm_unix_errno = 0;
+        return setSlotString(g, resultSlot, "");
+    }
+
+    // Find the next newline
+    size_t start = buffer->pos;
+    size_t end = buffer->output.find('\n', start);
+    if (end == std::string::npos) {
+        end = buffer->output.size();
+    }
+
+    std::string line = buffer->output.substr(start, end - start);
+    // Strip trailing \r if present (for \r\n line endings)
+    if (!line.empty() && line.back() == '\r') {
+        line.pop_back();
+    }
+    buffer->pos = end + 1; // Move past the newline
+
+    g_wasm_unix_errno = 0;
+    return setSlotString(g, resultSlot, line);
+}
+
+static int prPipeClose_Wasm(VMGlobals* g, int numArgsPushed) {
+    (void)numArgsPushed;
+    PyrSlot* a = g->sp;
+
+    int slot = 0;
+    if (slotIntVal(a, &slot) != errNone) {
+        return errWrongType;
+    }
+
+    freePipeBuffer(slot);
+    g_wasm_unix_errno = 0;
+    return errNone;
+}
+
 static int prPidRunning_Wasm(VMGlobals* g, int numArgsPushed) {
     (void)numArgsPushed;
     PyrSlot* a = g->sp;
@@ -868,6 +1070,15 @@ void initFilePrimitives() {
     definePrimitive(base, index++, "_FileMkDir", prFileMkDir, 2, 0);
     definePrimitive(base, index++, "_File_getcwd", prFileGetcwd, 2, 0);
 }
+// Primitive implementation for _HcWasmQuarksAvailable (Shared follow-up)
+// Dispatches to hc_wasm_quarks_available() which checks platform-specific support.
+static int prHcWasmQuarksAvailable(VMGlobals* g, int numArgsPushed) {
+    (void)g; (void)numArgsPushed;
+    int available = hc_wasm_quarks_available();
+    SetInt(g->sp, available);
+    return errNone;
+}
+
 void initUnixPrimitives()     {
     wasmWarnOnce(g_warned_unix_prims,
                  "WASM: Unix primitives are CLI-bridge backed; browser runtime remains explicitly unsupported.");
@@ -876,6 +1087,7 @@ void initUnixPrimitives()     {
 
     int base = nextPrimitiveIndex();
     int index = 0;
+    definePrimitive(base, index++, "_HcWasmQuarksAvailable", prHcWasmQuarksAvailable, 1, 0);
     definePrimitive(base, index++, "_String_System", prString_System_Wasm, 1, 0);
     definePrimitive(base, index++, "_String_Basename", prString_Basename_Wasm, 1, 0);
     definePrimitive(base, index++, "_String_Dirname", prString_Dirname_Wasm, 1, 0);
@@ -886,6 +1098,10 @@ void initUnixPrimitives()     {
     definePrimitive(base, index++, "_Array_UnixCmdGetStdOutWasm", prArray_UnixCmdGetStdOut_Wasm, 2, 0);
     definePrimitive(base, index++, "_PidRunning", prPidRunning_Wasm, 1, 0);
     definePrimitive(base, index++, "_GetPid", prGetPid_Wasm, 1, 0);
+    // Pipe primitives for Pipe.callSync compatibility
+    definePrimitive(base, index++, "_PipeOpen", prPipeOpen_Wasm, 2, 0);
+    definePrimitive(base, index++, "_FileReadLine", prFile_GetLine_Wasm, 2, 0);
+    definePrimitive(base, index++, "_PipeClose", prPipeClose_Wasm, 1, 0);
 }
 #if !defined(SC_WASM_USE_OSCDATA)
 void init_OSC_primitives()    {

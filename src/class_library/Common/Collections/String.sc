@@ -453,10 +453,24 @@ String[char] : RawArray {
 		^(path.dirname ++ thisProcess.platform.pathSeparator ++ this)
 	}
 	include {
-		if(Quarks.isInstalled(this).not) {
-			Quarks.install(this);
-			"... the class library may have to be recompiled.".postln;
-			// maybe check later whether there are .sc files included.
+		// Guard for WASM builds where Quarks may not be supported.
+		// On \wasm platform, only install if Quarks.supported is true.
+		// Otherwise, print a message and return this (no-op).
+		thisProcess.platform.name === \wasm if: {
+			Quarks.supported if: {
+				Quarks.isInstalled(this).ifNot({
+					Quarks.install(this);
+					"... the class library may have to be recompiled.".postln;
+				})
+			}, {
+				"Quarks are not available in this environment. Cannot include: %".format(this).postln;
+				^this
+			}
+		}, {
+			if(Quarks.isInstalled(this).not) {
+				Quarks.install(this);
+				"... the class library may have to be recompiled.".postln;
+			}
 		}
 	}
 	exclude {

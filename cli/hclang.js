@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const os = require('node:os');
-const { allocCString, instantiateEmscriptenModule, maybeRewriteDrecvTarget, maybeConvertInternalCommandToOsc } = require('./hc_runtime');
+const { allocCString, instantiateEmscriptenModule, maybeRewriteDrecvTarget, maybeConvertInternalCommandToOsc, setupNativeFsForCli } = require('./hc_runtime');
 const { getVersion, Logger, VERBOSITY_NORMAL } = require('./hc_utils');
 const { createUdpClient } = require('./hc_net');
 const { createMidiBridge } = require('./hc_midi');
@@ -30,6 +30,7 @@ function parseArgs(argv) {
     scriptArgs: [],
     lang: null,
     scscmDebug: false,
+    extraClassPaths: [],
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -57,6 +58,7 @@ function parseArgs(argv) {
     else if (a === '--print-timing') out.printTiming = true;
     else if (a === '--no-snapshot') out.noSnapshot = true;
     else if (a === '--snapshot-out') out.snapshotOut = next();
+    else if (a === '--extra-class-path') out.extraClassPaths.push(next());
     else if (a === '--version' || a === '-v') {
       console.log(`hclang ${getVersion()}`);
       process.exit(0);
@@ -77,6 +79,116 @@ function parseArgs(argv) {
   }
 
   return out;
+}
+
+// Quarks CLI: Mount helpers for NODEFS
+// These mount host directories into the Emscripten virtual filesystem
+// so that SC's Platform.userAppSupportDir and extra class paths resolve correctly.
+
+// Mount the quarks directory (/home/user/.local/share/SuperCollider/downloaded-quarks)
+// This matches Platform.userAppSupportDir ++ "downloaded-quarks" in SC code.
+function mountQuarksDir(module) {
+  const FS = module.FS;
+  const NODEFS = module.NODEFS;
+  
+  if (!FS || !NODEFS) {
+    console.warn('[quarks] FS or NODEFS not available, skipping quarks dir mount');
+    return false;
+  }
+
+  const quarksDir = '/home/user/.local/share/SuperCollider/downloaded-quarks';
+  
+  try {
+    // Create the parent directory structure if needed
+    const parentDir = '/home/user/.local/share/SuperCollider';
+    if (!FS.analyzePath(parentDir).exists) {
+      FS.mkdir(parentDir, 0o755, true);
+    }
+    if (!FS.analyzePath(quarksDir).exists) {
+      FS.mkdir(quarksDir, 0o755);
+    }
+
+    // The actual host path for quarks - use the user's real quarks directory
+    // On macOS: ~/Library/Application Support/SuperCollider/downloaded-quarks
+    // On Linux: ~/.local/share/SuperCollider/downloaded-quarks
+    // For now, use the standard SuperCollider path
+    const realQuarksDir = path.join(
+      process.env.HOME || '/',
+      process.platform === 'darwin' 
+        ? 'Library/Application Support/SuperCollider/downloaded-quarks'
+        : '.local/share/SuperCollider/downloaded-quarks'
+    );
+
+    // Check if the real quarks directory exists
+    if (fs.existsSync(realQuarksDir)) {
+      // Mount the real quarks dir at the WASM path
+      try {
+        FS.mount(NODEFS, { root: realQuarksDir }, quarksDir);
+        console.log(`[quarks] Mounted host quarks dir: ${realQuarksDir} -> ${quarksDir}`);
+        return true;
+      } catch (e) {
+        // May already be mounted
+        if (String(e).includes('busy') || String(e).includes('already mounted')) {
+          console.log(`[quarks] Quarks dir already mounted: ${quarksDir}`);
+          return true;
+        }
+        console.warn(`[quarks] Failed to mount quarks dir: ${e}`);
+      }
+    } else {
+      console.log(`[quarks] Host quarks dir not found at ${realQuarksDir}, creating empty mount`);
+    }
+
+    // If real dir doesn't exist or mount failed, create an empty directory
+    // This allows Quarks.folder to exist but be empty
+    if (!FS.analyzePath(quarksDir).exists) {
+      FS.mkdir(quarksDir, 0o755, true);
+    }
+
+    return true;
+  } catch (e) {
+    console.warn(`[quarks] Error mounting quarks dir: ${e}`);
+    return false;
+  }
+}
+
+// Mount an extra class path at /extra-class-lib/<index>/<basename>
+// This allows sclang to find class files from additional directories.
+function mountExtraClassPath(module, hostDir, index) {
+  const FS = module.FS;
+  const NODEFS = module.NODEFS;
+  
+  if (!FS || !NODEFS) {
+    console.warn('[quarks] FS or NODEFS not available, skipping extra class path mount');
+    return false;
+  }
+
+  const basename = path.basename(hostDir);
+  const mountPoint = `/extra-class-lib/${index}/${basename}`;
+  
+  try {
+    // Create parent directory structure
+    const parentDir = `/extra-class-lib/${index}`;
+    if (!FS.analyzePath(parentDir).exists) {
+      FS.mkdir(parentDir, 0o755, true);
+    }
+
+    // Mount the host directory
+    try {
+      FS.mount(NODEFS, { root: hostDir }, mountPoint);
+      console.log(`[quarks] Mounted extra class path: ${hostDir} -> ${mountPoint}`);
+      return true;
+    } catch (e) {
+      if (String(e).includes('busy') || String(e).includes('already mounted')) {
+        console.log(`[quarks] Extra class path already mounted: ${mountPoint}`);
+        return true;
+      }
+      console.warn(`[quarks] Failed to mount extra class path: ${e}`);
+      return false;
+    }
+  } catch (e) {
+    console.warn(`[quarks] Error mounting extra class path: ${e}`);
+    return false;
+  }
 }
 
 function printHelp() {
@@ -340,6 +452,44 @@ async function runSclangCli(opts) {
   sclang._hc_wasm_eval_set_post_callback(postCb);
   sclang._hc_wasm_eval_set_error_callback(errCb);
   stage("register_callbacks");
+
+  // Quarks CLI: Mount quarks directory and extra class paths before boot sequence
+  // These must be mounted before hc_wasm_eval_boot_sequence runs compileLibrary
+  if (typeof sclang.FS !== 'undefined' && typeof sclang.NODEFS !== 'undefined') {
+    // Mount the quarks directory
+    mountQuarksDir(sclang);
+    stage("mount_quarks_dir");
+
+    // Mount each extra class path and register with language config
+    opts.extraClassPaths.forEach((hostDir, index) => {
+      if (fs.existsSync(hostDir)) {
+        mountExtraClassPath(sclang, hostDir, index);
+        
+        // Also register with the WASM language config via hc_wasm_eval_add_include_path
+        // The mount path is /extra-class-lib/<index>/<basename>
+        const basename = path.basename(hostDir);
+        const wasmPath = `/extra-class-lib/${index}/${basename}`;
+        
+        if (typeof sclang._hc_wasm_eval_add_include_path === 'function') {
+          try {
+            const pathPtr = sclang.allocateUTF8(wasmPath);
+            sclang._hc_wasm_eval_add_include_path(pathPtr);
+            sclang._free(pathPtr);
+            logger.debug(`[quarks] Registered extra class path: ${wasmPath}`);
+          } catch (e) {
+            logger.warn(`[quarks] Failed to register extra class path: ${e}`);
+          }
+        }
+      } else {
+        console.warn(`[quarks] Extra class path not found: ${hostDir}`);
+      }
+    });
+    if (opts.extraClassPaths.length > 0) {
+      stage("mount_extra_class_paths");
+    }
+  } else {
+    console.warn('[quarks] FS/NODEFS not available, skipping quarks mounts');
+  }
 
   const initRc = sclang._hc_wasm_eval_boot_sequence();
   const tBootEnd = Date.now();

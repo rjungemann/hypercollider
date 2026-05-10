@@ -20,24 +20,24 @@ Coarse-grained checklist of the work below. Each item links to the detailed step
 
 ### Critical path (lands first)
 
-- [ ] **Engine — `hc_wasm_eval_add_include_path` export** (used by A3 and B5). Header `engine/HC_Wasm_Eval.h` (after line 71); impl in `engine/HC_Wasm_Eval.cpp`. See "Shared follow-up".
-- [ ] **Class library — `Quarks.supported` + `String#include` guard** (used by all tracks). `src/class_library/Common/Quarks/Quarks.sc` and `src/class_library/Common/Collections/String.sc:455-461`. See "Shared follow-up".
-- [ ] **Native primitive — `hc_wasm_quarks_available`** (browser path checks JS proxy; WAMR path checks `--quarks-dir` + `git`). See "Shared follow-up".
+- [x] **Engine — `hc_wasm_eval_add_include_path` export** (used by A3 and B5). Header `engine/HC_Wasm_Eval.h` (after line 71); impl in `engine/HC_Wasm_Eval.cpp`. See "Shared follow-up".
+- [x] **Class library — `Quarks.supported` + `String#include` guard** (used by all tracks). `src/class_library/Common/Quarks/Quarks.sc` and `src/class_library/Common/Collections/String.sc:455-461`. See "Shared follow-up".
+- [x] **Native primitive — `hc_wasm_quarks_available`** (browser path checks JS proxy; WAMR path checks `--quarks-dir` + `git`). See "Shared follow-up".
 
 ### Track A — Node.js CLI
 
-- [ ] **A1** Pipe primitives (`_PipeOpen` / `_File_GetLine` / `_PipeClose`) in `src/lang/core/wasm_runtime_bridge.cpp`
-- [ ] **A2** NODEFS mount of the quarks directory in `cli/hclang.js`
-- [ ] **A3** `--extra-class-path` flag in `cli/hclang.js`
-- [ ] **A4** Document the install-then-restart workflow (`--help` + `docs/CLI_REFERENCE.md`)
+- [x] **A1** Pipe primitives (`_PipeOpen` / `_File_GetLine` / `_PipeClose`) in `src/lang/core/wasm_runtime_bridge.cpp`
+- [x] **A2** NODEFS mount of the quarks directory in `cli/hclang.js`
+- [x] **A3** `--extra-class-path` flag in `cli/hclang.js`
+- [x] **A4** Document the install-then-restart workflow (`--help` + `docs/CLI_REFERENCE.md`)
 
 ### Track B — WAMR Native CLI
 
-- [ ] **B1** `hc_host_exec` / `hc_host_exec_capture` in `native/hclang_host/main.cpp`
-- [ ] **B2** WASI-side import declarations in `wasm_runtime_bridge.cpp`
-- [ ] **B3** Wire WASI paths of unix primitives (`prString_System_Wasm`, `prString_UnixCmdGetStdOut_Wasm`, `prPipeOpen_Wasm`, array variants)
-- [ ] **B4** `--quarks-dir` WASI pre-open
-- [ ] **B5** `--extra-class-path` for WAMR
+- [x] **B1** `hc_host_exec` / `hc_host_exec_capture` in `native/hclang_host/main.cpp`
+- [x] **B2** WASI-side import declarations in `wasm_runtime_bridge.cpp`
+- [x] **B3** Wire WASI paths of unix primitives (`prString_System_Wasm`, `prString_UnixCmdGetStdOut_Wasm`, `prPipeOpen_Wasm`, array variants)
+- [x] **B4** `--quarks-dir` WASI pre-open
+- [x] **B5** `--extra-class-path` for WAMR
 
 ### Test matrix
 

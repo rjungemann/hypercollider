@@ -440,3 +440,44 @@ extern "C" const char* hc_wasm_eval_status() {
                   g_post_callback ? "set" : "not set");
     return status;
 }
+
+// ============================================================================
+// CLASS LIBRARY INCLUDE PATH
+// ============================================================================
+
+extern "C" void hc_wasm_eval_add_include_path(const char* path) {
+    if (!path || !gLanguageConfig) {
+        return;
+    }
+    // Convert C string to std::filesystem::path
+    gLanguageConfig->addIncludedDirectory(std::filesystem::path(path));
+}
+
+// ============================================================================
+// QUARKS AVAILABILITY CHECK
+// ============================================================================
+
+// Static flag set by the WAMR host when --quarks-dir is provided.
+// Browser path checks window.__hclang_git_proxy via JS.
+static bool g_quarks_dir_registered = false;
+
+extern "C" void hc_wasm_quarks_set_available(bool available) {
+    g_quarks_dir_registered = available;
+}
+
+// Check if quarks are available in the current environment.
+// Returns 1 if available, 0 otherwise.
+#if defined(SC_WASM_WASI)
+extern "C" int hc_wasm_quarks_available() {
+    // WAMR path: check if --quarks-dir was registered
+    return g_quarks_dir_registered ? 1 : 0;
+}
+#elif defined(SC_WASM)
+// Emscripten path: check for JS proxy via emscripten
+EM_JS(int, hc_wasm_quarks_available, (), {
+    if (typeof window !== 'undefined' && window.__hclang_git_proxy) {
+        return 1;
+    }
+    return 0;
+});
+#endif

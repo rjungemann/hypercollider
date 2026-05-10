@@ -12,6 +12,16 @@ Quarks {
 		installedPaths,
 		installing;
 
+	*supported {
+		// On \wasm platform, check if host has quarks support via primitive.
+		// On other platforms, assume quarks are supported.
+		thisProcess.platform.name === \wasm if: {
+			_HcWasmQuarksAvailable.ir
+		}, {
+			true
+		}
+	}
+
 	*install { |name, refspec|
 		var path, quark;
 		if(Quarks.isPath(name).not, {

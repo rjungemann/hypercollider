@@ -100,6 +100,14 @@ node src/platform/wasm/cli/hclang.js --script <file> [options]
 | `--lang-udp-port <port>` | — | Local UDP port for scsynth replies |
 | `--call-stop` | off | Evaluate `Main.stop` after script finishes |
 
+### Quarks options
+
+> **Note:** Quarks support requires an install-then-restart workflow. Run hclang once with `--quarks-dir` or `--extra-class-path` to clone/download quarks, then re-run hclang (without flags) and the quarks will be compiled in automatically. `Quarks.install` will print a message and return early if quarks are not yet supported in the current runtime.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--extra-class-path <dir>` | — | Additional directory to search for class files. Can be specified multiple times. Useful for pre-staging quark directories. |
+
 ### Shared options
 
 | Flag | Default | Description |
@@ -117,6 +125,62 @@ node src/platform/wasm/cli/hclang.js --script sine.scd --output commands.json
 # Route directly to running scsynth
 node src/platform/wasm/cli/hclang.js --script live.scd \
   --scsynth-host 127.0.0.1 --scsynth-port 57110
+
+# Use a pre-staged quark directory
+node src/platform/wasm/cli/hclang.js --script piece.scd --output commands.json \
+  --extra-class-path /path/to/my-quarks
+```
+
+---
+
+## `hclang_native` — WAMR native WASM host
+
+Native WAMR-based WASM host for sclang evaluation. Supports the same core functionality as `hclang.js` but runs natively without Node.js, using the WAMR WebAssembly runtime.
+
+```bash
+./hclang_native --script <file> [options]
+```
+
+### Required
+
+| Flag | Description |
+|------|-------------|
+| `--script <file>` | Input `.scd` or `.scscm` file to evaluate |
+
+### Options
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--classlib-dir <dir>` | `-l` | — | Path to SC class library on host |
+| `--classlib-pack <file>` | `-p` | — | Path to hclang_classlib.pack (fast-path alternative) |
+| `--repl` | | off | Start interactive REPL |
+| `--scsynth-host <addr>` | | — | Remote scsynth host for OSC forwarding |
+| `--scsynth-port <port>` | | — | Remote scsynth UDP port |
+| `--no-server-boot` | | off | Fake Server.default into 'booted' state for standalone synth use |
+| `--wasm-from-disk` | | off | Load hclang.{aot,wasm} from CWD instead of embedded blob |
+| `--lang <auto\|scd\|scscm>` | | `auto` | Force input language |
+| `--scscm-debug` | | off | Write compiled sclang to .compiled.sc |
+| `--quarks-dir <dir>` | `-q` | — | Path to SuperCollider Quarks directory. Mounted at `/home/user/.local/share/SuperCollider/downloaded-quarks` in WASI. |
+| `--extra-class-path <dir>` | | — | Additional class library path to search. Can be specified multiple times. Mounted at `/extra-class-lib/<n>/<basename>` in WASI. |
+| `--verbose,-v` | | `0` | Verbosity level (0-2) |
+| `--help,-h` | | — | Show help and exit |
+
+### Examples
+
+```bash
+# Evaluate a script
+./hclang_native --script sine.scd --classlib-dir /path/to/SCClassLibrary
+
+# Start REPL
+./hclang_native --repl --classlib-dir /path/to/SCClassLibrary
+
+# With quarks support
+./hclang_native --script piece.scd --classlib-dir /path/to/SCClassLibrary \
+  --quarks-dir ~/.local/share/SuperCollider/downloaded-quarks
+
+# With extra class paths
+./hclang_native --script piece.scd --classlib-dir /path/to/SCClassLibrary \
+  --extra-class-path /path/to/my-quarks
 ```
 
 ---

@@ -248,6 +248,75 @@ static int32_t hc_host_poll_interrupt_impl(wasm_exec_env_t /*env*/) {
     return v;
 }
 
+// Quarks CLI: Host execution functions for command execution from WASM.
+// These are called by WASM via WASI imports when prPipeOpen_Wasm and similar
+// primitives execute shell commands.
+
+// hc_host_exec: run a shell command, return exit code.
+static int32_t hc_host_exec_impl(wasm_exec_env_t /*env*/,
+                                  const char* cmd, int32_t len) {
+    if (!cmd || len <= 0) {
+        return -1;
+    }
+    std::string command(cmd, len);
+    return ::system(command.c_str());
+}
+
+// hc_host_exec_capture: run a shell command, capture stdout.
+// Returns exit code. Output is written to the buffer at out_ptr (max out_len bytes).
+// Actual bytes written (excluding null terminator) is stored at bytes_written_ptr.
+static int32_t hc_host_exec_capture_impl(wasm_exec_env_t /*env*/,
+                                          const char* cmd, int32_t len,
+                                          char* out_ptr, int32_t out_len,
+                                          int32_t* bytes_written_ptr) {
+    if (!cmd || len <= 0 || !out_ptr || out_len <= 0 || !bytes_written_ptr) {
+        return -1;
+    }
+
+    std::string command(cmd, len);
+    
+    // Use popen to capture stdout
+    FILE* pipe = popen(command.c_str(), "r");
+    if (!pipe) {
+        return -1;
+    }
+
+    int bytes_written = 0;
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        size_t chunk_len = strlen(buffer);
+        if (bytes_written + (int)chunk_len >= out_len) {
+            // Not enough space, truncate
+            chunk_len = out_len - bytes_written - 1;
+            if (chunk_len <= 0) break;
+        }
+        memcpy(out_ptr + bytes_written, buffer, chunk_len);
+        bytes_written += chunk_len;
+    }
+
+    int exit_code = pclose(pipe);
+    if (exit_code == -1) {
+        bytes_written = 0;
+        return -1;
+    }
+
+    // Null-terminate the output
+    if (bytes_written < out_len) {
+        out_ptr[bytes_written] = '\0';
+    } else {
+        out_ptr[out_len - 1] = '\0';
+        bytes_written = out_len - 1;
+    }
+
+    *bytes_written_ptr = bytes_written;
+    
+    // Return 0 for success (matching system() behavior for success)
+    if (WIFEXITED(exit_code)) {
+        return WEXITSTATUS(exit_code);
+    }
+    return -1;
+}
+
 static void install_sigint_handler() {
     struct sigaction sa{};
     sa.sa_handler = sigint_handler;
@@ -410,6 +479,9 @@ static NativeSymbol hc_native_symbols[] = {
     { "sc_wasm_forward_osc_js",          (void*)sc_wasm_forward_osc_js_impl,          "(ii)i"     },
     { "_emscripten_throw_longjmp",       (void*)emscripten_throw_longjmp_impl,        "()"        },
     { "hc_host_poll_interrupt",          (void*)hc_host_poll_interrupt_impl,          "()i"       },
+    // Quarks CLI: Host execution functions
+    { "hc_host_exec",                    (void*)hc_host_exec_impl,                    "(*i)i"     },
+    { "hc_host_exec_capture",            (void*)hc_host_exec_capture_impl,            "(*ii*i)i"   },
     // invoke_* trampolines — dispatch through WASM function table
     { "invoke_vii",    (void*)invoke_vii_impl,    "(iii)"     },
     { "invoke_vi",     (void*)invoke_vi_impl,     "(ii)"      },
@@ -802,6 +874,12 @@ int main(int argc, char** argv) {
         bool        no_server_boot = false;
         std::string lang = "auto"; // auto, scd, scscm
         bool        scscm_debug = false;
+        // Quarks CLI: Host path to quarks directory, pre-opened at
+        // /home/user/.local/share/SuperCollider/downloaded-quarks in WASI.
+        std::string quarks_dir;
+        // Quarks CLI: Additional class library paths to search.
+        // Each path is pre-opened at /extra-class-lib/<index>/<basename> in WASI.
+        std::vector<std::string> extra_class_paths;
     } opts;
 
     CLI::App app("hclang - HyperCollider language native WASM host\n\n"
@@ -821,6 +899,15 @@ int main(int argc, char** argv) {
                                      "Skip the embedded WASM blob; load "
                                      "hclang.{aot,wasm} from CWD. Also "
                                      "honoured via HC_WASM_FROM_DISK=1.");
+    // Quarks CLI options
+    app.add_option("--quarks-dir,-q", opts.quarks_dir,
+                                     "Path to SuperCollider Quarks directory on host. "
+                                     "Mounted at /home/user/.local/share/SuperCollider/downloaded-quarks in WASI.");
+    app.add_option("--extra-class-path", opts.extra_class_paths,
+                                     "Additional class library path to search. "
+                                     "Can be specified multiple times. "
+                                     "Mounted at /extra-class-lib/<n>/<basename> in WASI.",
+                                     true);
     app.add_flag  ("--no-server-boot", opts.no_server_boot,
                                      "Fake Server.default into 'booted' "
                                      "state and point its addr at "
@@ -1059,6 +1146,76 @@ int main(int argc, char** argv) {
     g_wasm_host.add_wasi_dir(opts.classlib_dir,
                              "/usr/share/SuperCollider/SCClassLibrary");
 
+    // 3.6 Quarks CLI: WASI pre-open for quarks directory.
+    // This allows SC's Quarks.folder (= Platform.userAppSupportDir ++ "downloaded-quarks")
+    // to resolve to the host's quarks directory via the WASI pre-opened path.
+    // Platform.userAppSupportDir returns /home/user/.local/share/SuperCollider in WASM.
+    if (!opts.quarks_dir.empty()) {
+        // Validate the user-supplied path
+        struct stat st{};
+        if (stat(opts.quarks_dir.c_str(), &st) != 0) {
+            fprintf(stderr,
+                "WARNING: --quarks-dir '%s' does not exist (%s).\n",
+                opts.quarks_dir.c_str(), strerror(errno));
+        } else if (!S_ISDIR(st.st_mode)) {
+            fprintf(stderr,
+                "WARNING: --quarks-dir '%s' is not a directory.\n",
+                opts.quarks_dir.c_str());
+        } else {
+            // Check if it contains quarks (directories with .sc files or .quark files)
+            DIR* d = opendir(opts.quarks_dir.c_str());
+            bool has_quarks = false;
+            if (d) {
+                struct dirent* e;
+                while ((e = readdir(d)) != nullptr) {
+                    if (e->d_type == DT_DIR && e->d_name[0] != '.') {
+                        has_quarks = true;
+                        break;
+                    }
+                }
+                closedir(d);
+            }
+            
+            g_wasm_host.add_wasi_dir(opts.quarks_dir,
+                                     "/home/user/.local/share/SuperCollider/downloaded-quarks");
+            if (opts.verbosity > 0) {
+                fprintf(stderr,
+                    "Using --quarks-dir %s (mounted at /home/user/.local/share/SuperCollider/downloaded-quarks)\n",
+                    opts.quarks_dir.c_str());
+            }
+        }
+    }
+
+    // 3.7 Quarks CLI: WASI pre-open for extra class paths.
+    // Each extra path is pre-opened at /extra-class-lib/<index>/<basename>.
+    for (size_t i = 0; i < opts.extra_class_paths.size(); ++i) {
+        const std::string& host_path = opts.extra_class_paths[i];
+        struct stat st{};
+        if (stat(host_path.c_str(), &st) != 0) {
+            fprintf(stderr,
+                "WARNING: --extra-class-path '%s' does not exist (%s). Skipping.\n",
+                host_path.c_str(), strerror(errno));
+            continue;
+        }
+        if (!S_ISDIR(st.st_mode)) {
+            fprintf(stderr,
+                "WARNING: --extra-class-path '%s' is not a directory. Skipping.\n",
+                host_path.c_str());
+            continue;
+        }
+        
+        // Extract basename from path (C++17 filesystem would be cleaner but we avoid it here)
+        size_t last_slash = host_path.find_last_of("/\\");
+        std::string basename = (last_slash == std::string::npos) ? host_path : host_path.substr(last_slash + 1);
+        std::string wasm_path = "/extra-class-lib/" + std::to_string(i) + "/" + basename;
+        
+        g_wasm_host.add_wasi_dir(host_path, wasm_path);
+        if (opts.verbosity > 0) {
+            fprintf(stderr, "Using --extra-class-path %s (mounted at %s)\n",
+                    host_path.c_str(), wasm_path.c_str());
+        }
+    }
+
     // 4. Instantiate with generous stack + heap. The default 64 KB stack can
     // be insufficient for AOT mode where each WASM frame may use more
     // aux-stack space; bump to 1 MB. host_managed_heap is for the host's
@@ -1200,8 +1357,49 @@ int main(int argc, char** argv) {
                         rc, g_wasm_host.get_error().c_str());
                 return 1;
             }
+
+            // Quarks CLI: Register extra class paths with the language config
+            // after hc_wasm_eval_init has set up the LanguageConfig.
+            for (size_t i = 0; i < opts.extra_class_paths.size(); ++i) {
+                const std::string& host_path = opts.extra_class_paths[i];
+                size_t last_slash = host_path.find_last_of("/\\");
+                std::string basename = (last_slash == std::string::npos) ? host_path : host_path.substr(last_slash + 1);
+                std::string wasm_path = "/extra-class-lib/" + std::to_string(i) + "/" + basename;
+                
+                // Allocate in WASM memory
+                uint32_t wptr = 0;
+                void* native_ptr = nullptr;
+                wptr = g_wasm_host.wasm_malloc((uint32_t)wasm_path.size() + 1, &native_ptr);
+                if (!wptr || !native_ptr) {
+                    fprintf(stderr, "Failed to allocate WASM buffer for extra class path\n");
+                    continue;
+                }
+                memcpy(native_ptr, wasm_path.c_str(), wasm_path.size() + 1);
+                
+                // Call hc_wasm_eval_add_include_path
+                g_wasm_host.call("hc_wasm_eval_add_include_path", 0, nullptr, wptr);
+                g_wasm_host.wasm_free(wptr);
+                
+                if (opts.verbosity > 0) {
+                    fprintf(stderr, "[quarks] Registered extra class path: %s\n", wasm_path.c_str());
+                }
+            }
         }
     }
+
+    // Quarks CLI: Signal that quarks support is available when quarks_dir is provided.
+    // This sets the g_quarks_dir_registered flag in HC_Wasm_Eval.cpp which is checked
+    // by hc_wasm_quarks_available() on the WASI path.
+    if (!opts.quarks_dir.empty()) {
+        int32_t available = 1;
+        if (!g_wasm_host.call("hc_wasm_quarks_set_available", 0, nullptr, available)) {
+            fprintf(stderr, "Warning: hc_wasm_quarks_set_available call failed: %s\n",
+                    g_wasm_host.get_error().c_str());
+        } else if (opts.verbosity > 0) {
+            fprintf(stderr, "[quarks] Quarks support enabled\n");
+        }
+    }
+
     stage("eval_init");
 
     // 6. Boot: parse and compile the class library

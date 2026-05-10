@@ -83,6 +83,24 @@ const char* hc_wasm_eval_status();
  */
 uint32_t hc_wasm_eval_heap_end();
 
+/**
+ * Add a path to the SC class library search list.
+ * Must be called after hc_wasm_eval_init() and before hc_wasm_eval_boot_sequence().
+ */
+void hc_wasm_eval_add_include_path(const char* path);
+
+/**
+ * Set quarks availability flag (WAMR host calls this to signal --quarks-dir was provided).
+ */
+void hc_wasm_quarks_set_available(bool available);
+
+/**
+ * Check if quarks are available in the current WASM environment.
+ * Browser path: checks for window.__hclang_git_proxy
+ * WAMR path: checks if --quarks-dir was registered
+ */
+int hc_wasm_quarks_available();
+
 #ifdef __cplusplus
 }
 #endif
