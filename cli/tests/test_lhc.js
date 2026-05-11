@@ -794,3 +794,52 @@ console.log('='.repeat(60));
 if (testsFailed > 0) {
   process.exit(1);
 }
+
+// ============================================================================
+// SYNTAX MODE TESTS (Sweet-exp integration)
+// ============================================================================
+
+const { compileScscmText } = require('../lhc_compile');
+
+testSection('SYNTAX MODE TESTS');
+
+{
+  // Test that auto mode works with regular s-expressions
+  const sc = compileScscmText('(+ 1 2)', 'test.scscm', { syntax: 'auto' });
+  assert(sc.includes('1 + 2'), 'Auto mode compiles regular s-expressions');
+}
+
+{
+  // Test that sexpr mode works with regular s-expressions
+  const sc = compileScscmText('(+ 1 2)', 'test.scscm', { syntax: 'sexpr' });
+  assert(sc.includes('1 + 2'), 'Sexpr mode compiles regular s-expressions');
+}
+
+{
+  // Test that sweet mode compiles curly-infix
+  const sc = compileScscmText('{ 1 + 2 }', 'test.scscm', { syntax: 'sweet' });
+  assert(sc.includes('1 + 2'), 'Sweet mode compiles curly-infix to same output as sexpr');
+}
+
+{
+  // Test that sweet mode compiles neoteric sugar
+  const sc = compileScscmText('add(1 2)', 'test.scscm', { syntax: 'sweet' });
+  assert(sc.includes('add(') && sc.includes('1') && sc.includes('2'), 'Sweet mode compiles neoteric sugar');
+}
+
+{
+  // Test that sweet mode compiles mixed forms
+  const sc = compileScscmText('(+ 1 add(2 3))', 'test.scscm', { syntax: 'sweet' });
+  assert(sc.includes('+') && sc.includes('1') && sc.includes('2') && sc.includes('3'), 'Sweet mode compiles mixed forms');
+}
+
+{
+  // Test error handling for invalid sweet syntax
+  let didError = false;
+  try {
+    compileScscmText('{ a + b * c }', 'test.scscm', { syntax: 'sweet' });
+  } catch (err) {
+    didError = true;
+  }
+  assert(didError, 'Sweet mode errors on mixed operators in curly form');
+}

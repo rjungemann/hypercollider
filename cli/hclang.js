@@ -67,6 +67,7 @@ function parseArgs(argv) {
     else if (a === '--no-zeroconf') out.noZeroconf = true;
     else if (a === '--zeroconf-timeout') out.zeroconfTimeout = parseInt(next(), 10);
     else if (a === '--zeroconf-name') out.zeroconfName = next();
+    else if (a === '--syntax') out.syntax = next();
     else if (a === '--version' || a === '-v') {
       console.log(`hclang ${getVersion()}`);
       process.exit(0);
@@ -84,6 +85,11 @@ function parseArgs(argv) {
   const hasExternalRoute = out.scsynthHost && out.scsynthPort;
   if (!out.printReady && !hasExternalRoute && !out.output) {
     throw new Error('Missing required --output <commands.json> (or use --scsynth-host + --scsynth-port for live routing)');
+  }
+
+  // Validate syntax option
+  if (out.syntax && !['auto', 'sexpr', 'sweet'].includes(out.syntax)) {
+    throw new Error(`Invalid syntax mode '${out.syntax}'. Must be 'auto', 'sexpr', or 'sweet'.`);
   }
 
   return out;
@@ -227,6 +233,7 @@ Live routing options:
 
 Compilation options:
   --lang <scscm|scd>           Force input language (auto-detected by default)
+  --syntax auto|sexpr|sweet   Syntax mode for scscm: auto (default), sexpr, or sweet
   --scscm-debug                Write compiled sclang to .compiled.sc for inspection
 
 Service discovery options:
@@ -246,6 +253,7 @@ Examples:
   hclang --script piece.scscm --output commands.json --scscm-debug
   hclang --script piece.scd --output commands.json --verbosity 1
   hclang --script sine.scd --scsynth-host 127.0.0.1 --scsynth-port 57110
+  hclang --script sweet.scscm --output commands.json --syntax sweet
 
 Info:
   -h, --help                   Show this help and exit
@@ -582,7 +590,7 @@ async function runSclangCli(opts) {
   // Determine language from extension or explicit --lang flag
   const isScscm = opts.lang === 'scscm' || (!opts.lang && scriptPath.endsWith('.scscm'));
   if (isScscm) {
-    script = compileScscmText(script, scriptPath);
+    script = compileScscmText(script, scriptPath, { syntax: opts.syntax || 'auto' });
     if (opts.scscmDebug) {
       const debugPath = scriptPath + '.compiled.sc';
       fs.writeFileSync(debugPath, script, 'utf8');

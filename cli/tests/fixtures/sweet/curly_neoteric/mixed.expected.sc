@@ -1,0 +1,14 @@
+// Mixed mode - curly-infix + neoteric + explicit parens
+// All should work together
+
+// Mixed explicit and neoteric
+(+ 1 (add 2 3))
+
+// Mixed explicit and curly
+(+ (+ 1 2) 3)
+
+// Mixed curly with neoteric inside
+(+ a (sin x))
+
+// All three together
+(+ (+ 1 2) (mul 3 4))

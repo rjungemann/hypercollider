@@ -3,9 +3,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { Lexer } = require('./lhc_lexer');
-const { Parser } = require('./lhc_parser');
-const { CodeGenerator } = require('./lhc_codegen');
+const { compileScscmText } = require('./lhc_compile');
 const { getVersion } = require('./hc_utils');
 
 function parseArgs(argv) {
@@ -15,6 +13,7 @@ function parseArgs(argv) {
     toSc: false,
     verbose: false,
     help: false,
+    syntax: 'auto',
   };
 
   for (let i = 2; i < argv.length; i++) {
@@ -33,6 +32,13 @@ function parseArgs(argv) {
       args.toSc = true;
     } else if (arg === '--verbose') {
       args.verbose = true;
+    } else if (arg === '--syntax') {
+      args.syntax = argv[++i];
+      // Validate syntax value
+      if (!['auto', 'sexpr', 'sweet'].includes(args.syntax)) {
+        console.error(`Error: Invalid syntax mode '${args.syntax}'. Must be 'auto', 'sexpr', or 'sweet'.`);
+        process.exit(1);
+      }
     } else if (!arg.startsWith('-') && !args.input) {
       args.input = arg;
     }
@@ -53,12 +59,14 @@ Required:
 Options:
   -o, --output FILE          Output .sc file (optional, prints to stdout if not set)
   --to-sc                    Only compile to .sc, don't run through sclang
+  --syntax auto|sexpr|sweet  Syntax mode: auto (default), sexpr (s-expressions only), sweet (sweet-exp)
   --verbose                  Enable verbose output (legacy flag)
 
 Examples:
   scscm sine.scscm -o sine.sc
   scscm fm.scscm --verbose
   scscm synth.scscm | sclang
+  scscm sweet_file.scscm --syntax sweet -o sweet_file.sc
 
 Info:
   -h, --help                 Show this help and exit
@@ -101,20 +109,11 @@ async function main() {
 
   let sclangCode;
   try {
-    if (args.verbose) console.log('[lhc] Tokenizing...');
-    const lexer = new Lexer(source);
-    const tokens = lexer.tokenize();
-    if (args.verbose) console.log(`[lhc] Generated ${tokens.length} tokens`);
-
-    if (args.verbose) console.log('[lhc] Parsing...');
-    const parser = new Parser(tokens);
-    const ast = parser.parse();
-    if (args.verbose) console.log(`[lhc] Built AST with ${ast.length} top-level expressions`);
-
-    if (args.verbose) console.log('[lhc] Generating sclang code...');
-    const codegen = new CodeGenerator();
-    sclangCode = codegen.generate(ast);
-    if (args.verbose) console.log(`[lhc] Generated ${sclangCode.length} bytes of sclang code`);
+    if (args.verbose) console.log('[lhc] Compiling...');
+    sclangCode = compileScscmText(source, args.input, { syntax: args.syntax });
+    if (args.verbose) {
+      console.log(`[lhc] Generated ${sclangCode.length} bytes of sclang code`);
+    }
   } catch (err) {
     reportError(err.message, err.line, err.column);
     if (args.verbose) {
