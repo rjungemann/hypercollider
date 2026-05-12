@@ -445,3 +445,46 @@ console.log('='.repeat(60));
 if (testsFailed > 0) {
   process.exit(1);
 }
+
+// ============================================================================
+// M2 INDENTATION TESTS
+// ============================================================================
+
+testSection('INDENTATION-BASED GROUPING TESTS (M2)');
+
+{
+  const result = normalizeSweetToSexpr('play\n  Synth:new \\kick', { phase: 'm2' });
+  assert(result.source === '(play (Synth:new \\kick))', 'Single indented line: play\\n  Synth:new \\kick');
+}
+
+{
+  const result = normalizeSweetToSexpr('defn add\n  x y', { phase: 'm2' });
+  assert(result.source === '(defn add (x y))', 'Function with params: defn add\\n  x y');
+}
+
+{
+  const result = normalizeSweetToSexpr('defn add\n  x y\n  + x y', { phase: 'm2' });
+  assert(result.source === '(defn add (x y) (+ x y))', 'Function with body: defn add\\n  x y\\n  + x y');
+}
+
+{
+  const result = normalizeSweetToSexpr('let\n  x 10\n  y 20', { phase: 'm2' });
+  assert(result.source === '(let (x 10) (y 20))', 'Let binding with multiple bindings');
+}
+
+{
+  // Test that M1 still works with phase m2
+  const result = normalizeSweetToSexpr('{ 1 + 2 }', { phase: 'm2' });
+  assert(result.source === '(+ 1 2)', 'Curly infix still works in M2 phase');
+}
+
+{
+  const result = normalizeSweetToSexpr('sin(x)', { phase: 'm2' });
+  assert(result.source === '(sin x)', 'Neoteric still works in M2 phase');
+}
+
+{
+  // Mixed M1 and M2
+  const result = normalizeSweetToSexpr('defn add\n  { x + y }', { phase: 'm2' });
+  assert(result.source === '(defn add ((+ x y)))', 'Mixed indentation and curly infix');
+}

@@ -13,6 +13,9 @@
  * 
  * API:
  *   normalizeSweetToSexpr(source, opts = {}) -> { source: string, map: SourceMap }
+ * 
+ * Options:
+ *   phase: 'm1' (curly/neoteric only) or 'm2'/'full' (includes indentation)
  */
 
 // ============================================================================
@@ -46,52 +49,435 @@ class SourceMap {
 }
 
 // ============================================================================
-// Simple regex-based normalizer for M1 (Curly/Neoteric subset)
+// Sweet Reader Implementation
 // ============================================================================
 
-const INFIX_OPERATORS = ['+', '-', '*', '/', '=', '<', '>', '<=', '>='];
+const INFIX_OPERATORS = new Set(['+', '-', '*', '/', '=', '<', '>', '<=', '>=']);
 
 /**
  * Normalize sweet-expression source to canonical s-expression source.
  * 
- * For M1 phase, this handles:
- *   - Curly-infix: { a + b } -> (+ a b)
- *   - Neoteric: f(x) -> (f x), f[x] -> (f x), f{args} -> (f args)
- * 
- * The approach is regex-based for simplicity and reliability.
+ * For M1 phase, handles curly-infix and neoteric sugar.
+ * For M2 phase, also handles indentation-based grouping.
  */
 function normalizeSweetToSexpr(source, opts = {}) {
   const phase = opts.phase || 'm1';
   const map = new SourceMap();
-  let result = source;
 
-  // Track line/column for source mapping
-  // This is a simplified implementation - in practice we'd build the mapping
-  // as we transform. For now, we return an empty map.
+  // Step 0: Handle line continuation (backslash at end of line)
+  let result = handleLineContinuation(source);
 
-  if (phase === 'm1' || phase === 'full') {
-    // Step 0: Strip comments (line comments only for M1)
-    result = stripComments(result, map);
+  // Step 1: Strip comments
+  result = stripComments(result, map);
 
-    // Step 1: Handle neoteric call sugar INSIDE all forms first
-    result = replaceNeoteric(result, map);
-
-    // Step 2: Handle curly-infix forms { expr OP expr }
-    // We need to find balanced curly braces and check for homogeneous operators
-    result = replaceCurlyInfix(result, map);
+  if (phase === 'm2' || phase === 'full') {
+    // M2: Handle indentation-based grouping
+    result = handleIndentationGrouping(result, map);
   }
 
-  // Validate for common errors
+  // Step 2: Handle neoteric call sugar
+  result = replaceNeoteric(result, map);
+
+  // Step 3: Handle curly-infix forms
+  result = replaceCurlyInfix(result, map);
+
+  // Step 4: Validate result
   validateResult(result);
 
   return { source: result.trim(), map };
 }
 
 /**
+ * Handle line continuation with backslash.
+ * Lines ending with \ are joined with the next line.
+ */
+function handleLineContinuation(source) {
+  const lines = source.split('\n');
+  const result = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trimEnd();
+
+    if (trimmed.endsWith('\\') && i + 1 < lines.length) {
+      // Join with next line
+      result.push(line.slice(0, -1) + lines[i + 1]);
+      i += 2;
+    } else {
+      result.push(line);
+      i++;
+    }
+  }
+
+  return result.join('\n');
+}
+
+/**
+ * Strip line comments from source.
+ */
+function stripComments(source, map) {
+  let result = '';
+  let resultLine = 1;
+  let resultColumn = 1;
+  let i = 0;
+  let line = 1;
+  let column = 1;
+
+  while (i < source.length) {
+    const char = source[i];
+
+    if (char === ';') {
+      // Skip to end of line
+      while (i < source.length && source[i] !== '\n') {
+        if (source[i] === '\n') {
+          line++;
+          column = 1;
+        } else {
+          column++;
+        }
+        i++;
+      }
+    } else {
+      // Add to result with mapping
+      map.addMapping(resultLine, resultColumn, line, column);
+      result += char;
+
+      if (char === '\n') {
+        resultLine++;
+        resultColumn = 1;
+        line++;
+        column = 1;
+      } else {
+        resultColumn++;
+        column++;
+      }
+      i++;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Handle indentation-based grouping for M2.
+ * 
+ * For now, this is a simplified implementation that handles the common case
+ * of a function call with indented arguments.
+ * 
+ * Example:
+ *   play            → (play (Synth:new \kick))
+ *     Synth:new \kick
+ * 
+ *   defn add        → (defn add (x y) (+ x y))
+ *     x y
+ *     + x y
+ * 
+ * Each indented line becomes a wrapped form.
+ */
+function handleIndentationGrouping(source, map) {
+  const lines = source.split('\n').filter(l => l.trim() !== '');
+  
+  if (lines.length <= 1) {
+    return source;
+  }
+
+  // Parse indentation for each line
+  const parsed = lines.map(line => {
+    const match = line.match(/^([ \t]*)(.*?)[ \t]*$/);
+    return {
+      indent: match ? match[1].length : 0,
+      content: match ? match[2] : line,
+    };
+  });
+
+  // Simple algorithm: if line 2+ are indented relative to line 1,
+  // wrap each indented line as a form and append to line 1
+  const firstIndent = parsed[0].indent;
+  const indentedLines = [];
+  let i = 1;
+
+  // Collect all lines at the same indent as the first indented line
+  while (i < parsed.length && parsed[i].indent > firstIndent) {
+    // Each indented line becomes a wrapped form
+    const lineContent = parsed[i].content;
+    // If the line has multiple tokens, wrap it
+    const wrappedLine = lineContent.includes(' ') 
+      ? `(${lineContent})` 
+      : lineContent;
+    indentedLines.push(wrappedLine);
+    i++;
+  }
+
+  if (indentedLines.length > 0) {
+    // Wrap the first line and indented lines together
+    const wrapped = `(${parsed[0].content} ${indentedLines.join(' ')})`;
+    
+    // If there are more lines, process them too
+    if (i < parsed.length) {
+      const restResult = handleIndentationGrouping(
+        parsed.slice(i).map(l => '  '.repeat(l.indent - firstIndent) + l.content).join('\n'),
+        map
+      );
+      return wrapped + ' ' + restResult;
+    }
+    
+    return wrapped;
+  }
+
+  // No indentation - just join all lines
+  return parsed.map(l => l.content).join(' ');
+}
+
+/**
+ * Extract balanced content between delimiters.
+ */
+function extractBalanced(source, startPos, openChar, closeChar) {
+  if (source[startPos] !== openChar) return null;
+
+  let depth = 1;
+  let content = '';
+  let i = startPos + 1;
+
+  while (i < source.length && depth > 0) {
+    const char = source[i];
+
+    if (char === openChar) {
+      depth++;
+    } else if (char === closeChar) {
+      depth--;
+    }
+
+    if (depth > 0) {
+      content += char;
+    }
+    i++;
+  }
+
+  if (depth > 0) {
+    return null; // Unclosed
+  }
+
+  return content;
+}
+
+/**
+ * Simple tokenizer for infix content parsing.
+ */
+function tokenizeSimple(content) {
+  const tokens = [];
+  let i = 0;
+
+  while (i < content.length) {
+    while (i < content.length && /[ \t]/.test(content[i])) {
+      i++;
+    }
+
+    if (i >= content.length) break;
+
+    const char = content[i];
+
+    if (char === '"') {
+      let j = i + 1;
+      while (j < content.length && content[j] !== '"') {
+        if (content[j] === '\\') j++;
+        j++;
+      }
+      if (j < content.length) j++;
+      tokens.push(content.slice(i, j));
+      i = j;
+    } else if (char === '(' || char === ')' || char === '[' || char === ']') {
+      let depth = 1;
+      let j = i + 1;
+      const closeChar = char === '(' ? ')' : char === '[' ? ']' : null;
+      if (!closeChar) {
+        j++;
+      } else {
+        while (j < content.length && depth > 0) {
+          if (content[j] === char) depth++;
+          else if (content[j] === closeChar) depth--;
+          j++;
+        }
+      }
+      tokens.push(content.slice(i, j));
+      i = j;
+    } else if (char === '<' || char === '>' || char === '=') {
+      if (i + 1 < content.length) {
+        const twoChar = content.slice(i, i + 2);
+        if (['<=', '>=', '=='].includes(twoChar)) {
+          tokens.push(twoChar);
+          i += 2;
+          continue;
+        }
+      }
+      tokens.push(char);
+      i++;
+    } else if (INFIX_OPERATORS.has(char)) {
+      tokens.push(char);
+      i++;
+    } else if (/[a-zA-Z0-9_%\:*+\/<>=!?.]/.test(char) || char === '\\') {
+      let j = i;
+      if (char === '\\') {
+        j++;
+        while (j < content.length && /[a-zA-Z0-9_%\-*+\/<>=!?.]/.test(content[j])) {
+          j++;
+        }
+      } else {
+        while (j < content.length && /[a-zA-Z0-9_%\:*+\/<>=!?.]/.test(content[j])) {
+          j++;
+        }
+      }
+      tokens.push(content.slice(i, j));
+      i = j;
+    } else {
+      i++;
+    }
+  }
+
+  return tokens;
+}
+
+/**
+ * Parse infix content and return s-expression if homogeneous.
+ */
+function parseInfixContent(content) {
+  const tokens = tokenizeSimple(content);
+  const operators = tokens.filter((t) => INFIX_OPERATORS.has(t));
+
+  if (operators.length === 0) {
+    return { isInfix: false, expr: `(${content.trim()})` };
+  }
+
+  const firstOp = operators[0];
+  const allSame = operators.every((op) => op === firstOp);
+
+  if (!allSame) {
+    throw new Error(
+      `Mixed operators in curly form: found ${operators.join(', ')}`
+    );
+  }
+
+  const args = tokens.filter((t) => !INFIX_OPERATORS.has(t));
+  const expr = `(${firstOp} ${args.join(' ')})`;
+
+  return { isInfix: true, expr };
+}
+
+/**
+ * Replace curly-infix forms with s-expressions.
+ */
+function replaceCurlyInfix(source, map) {
+  let result = source;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    let newResult = '';
+    let i = 0;
+
+    while (i < result.length) {
+      if (result[i] === '{') {
+        const braceContent = extractBalanced(result, i, '{', '}');
+        if (braceContent === null) {
+          throw new Error(
+            `Unclosed curly brace at position ${i}`
+          );
+        }
+
+        const fullMatch = `{${braceContent}}`;
+        const processedContent = replaceNeoteric(braceContent, map);
+        const infixResult = parseInfixContent(processedContent);
+
+        if (infixResult.isInfix) {
+          newResult += infixResult.expr;
+          i += fullMatch.length;
+          changed = true;
+        } else {
+          newResult += fullMatch;
+          i += fullMatch.length;
+        }
+      } else {
+        newResult += result[i];
+        i++;
+      }
+    }
+
+    result = newResult;
+  }
+
+  return result;
+}
+
+/**
+ * Replace neoteric call sugar with s-expressions.
+ */
+function replaceNeoteric(source, map) {
+  let result = source;
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    let newResult = '';
+    let i = 0;
+
+    while (i < result.length) {
+      if (/[a-zA-Z0-9_%\:*+\/<>=!?.]/.test(result[i]) || result[i] === '\\') {
+        let symbolMatch;
+        if (result[i] === '\\') {
+          symbolMatch = result.slice(i).match(/^\\\\?[a-zA-Z0-9_%\-*+\/<>=!?.]+/);
+        } else {
+          symbolMatch = result.slice(i).match(/^[a-zA-Z0-9_%\:*+\/<>=!?.]+/);
+        }
+        if (symbolMatch) {
+          const symbol = symbolMatch[0];
+          const nextChar = result[i + symbol.length];
+
+          if (nextChar === '(' || nextChar === '[' || nextChar === '{') {
+            const openChar = nextChar;
+            const closeChar = openChar === '(' ? ')' : openChar === '[' ? ']' : '}';
+            const argsContent = extractBalanced(
+              result,
+              i + symbol.length,
+              openChar,
+              closeChar
+            );
+
+            if (argsContent !== null) {
+              const fullMatch = symbol + openChar + argsContent + closeChar;
+              let args = replaceNeoteric(argsContent, map);
+              args = replaceCurlyInfix(args, map);
+
+              const expr = args.trim() === ''
+                ? `(${symbol})`
+                : `(${symbol} ${args})`;
+
+              newResult += expr;
+              i += fullMatch.length;
+              changed = true;
+              continue;
+            } else {
+              throw new Error(
+                `Unclosed ${openChar} in neoteric form at position ${i + symbol.length}`
+              );
+            }
+          }
+        }
+      }
+
+      newResult += result[i];
+      i++;
+    }
+
+    result = newResult;
+  }
+
+  return result;
+}
+
+/**
  * Validate the normalized result for common errors.
  */
 function validateResult(result) {
-  // Check for unmatched parentheses
   let parenDepth = 0;
   let bracketDepth = 0;
   let braceDepth = 0;
@@ -132,337 +518,6 @@ function validateResult(result) {
   }
 }
 
-/**
- * Strip line comments from source and build source mappings.
- */
-function stripComments(source, map) {
-  let result = '';
-  let resultLine = 1;
-  let resultColumn = 1;
-  let i = 0;
-  let line = 1;
-  let column = 1;
-
-  while (i < source.length) {
-    const char = source[i];
-
-    if (char === ';') {
-      // Skip to end of line - don't add to result
-      while (i < source.length && source[i] !== '\n') {
-        if (source[i] === '\n') {
-          line++;
-          column = 1;
-        } else {
-          column++;
-        }
-        i++;
-      }
-    } else {
-      // Add to result with mapping
-      map.addMapping(resultLine, resultColumn, line, column);
-      result += char;
-
-      if (char === '\n') {
-        resultLine++;
-        resultColumn = 1;
-        line++;
-        column = 1;
-      } else {
-        resultColumn++;
-        column++;
-      }
-      i++;
-    }
-  }
-
-  return result;
-}
-
-/**
- * Replace curly-infix forms with s-expressions.
- * { a + b } -> (+ a b)
- * { a + b + c } -> (+ a b c)
- */
-function replaceCurlyInfix(source, map) {
-  let result = source;
-  let changed = true;
-
-  // We need to handle nested braces carefully
-  // Process from innermost to outermost
-  while (changed) {
-    changed = false;
-    let newResult = '';
-    let i = 0;
-
-    while (i < result.length) {
-      if (result[i] === '{') {
-        // Find matching closing brace
-        const braceContent = extractBalanced(result, i, '{', '}');
-        if (braceContent === null) {
-          // Unclosed brace - throw error
-          throw new Error(
-            `Unclosed curly brace at position ${i}`
-          );
-        }
-
-        const fullMatch = `{${braceContent}}`;
-
-        // First, recursively process neoteric forms inside the content
-        const processedContent = replaceNeoteric(braceContent, map);
-
-        // Parse the content for infix operators
-        const infixResult = parseInfixContent(processedContent);
-
-        if (infixResult.isInfix) {
-          // Replace with s-expression
-          newResult += infixResult.expr;
-          i += fullMatch.length;
-          changed = true;
-        } else {
-          // Not infix (no operators or mixed) - leave as-is
-          newResult += fullMatch;
-          i += fullMatch.length;
-        }
-      } else {
-        newResult += result[i];
-        i++;
-      }
-    }
-
-    result = newResult;
-  }
-
-  return result;
-}
-
-/**
- * Extract balanced content between delimiters.
- * Returns the content (without delimiters) or null if unbalanced.
- */
-function extractBalanced(source, startPos, openChar, closeChar) {
-  if (source[startPos] !== openChar) return null;
-
-  let depth = 1;
-  let content = '';
-  let i = startPos + 1;
-
-  while (i < source.length && depth > 0) {
-    const char = source[i];
-
-    if (char === openChar) {
-      depth++;
-    } else if (char === closeChar) {
-      depth--;
-    }
-
-    if (depth > 0) {
-      content += char;
-    }
-    i++;
-  }
-
-  if (depth > 0) {
-    // Unclosed
-    return null;
-  }
-
-  return content;
-}
-
-/**
- * Parse content inside curly braces to check if it's homogeneous infix.
- * Returns { isInfix: boolean, expr: string }
- */
-function parseInfixContent(content) {
-  // Tokenize the content (simple whitespace-split for now)
-  const tokens = tokenizeSimple(content);
-
-  // Check for homogeneous operators
-  const operators = tokens.filter((t) => INFIX_OPERATORS.includes(t));
-
-  if (operators.length === 0) {
-    // No operators - treat as regular list
-    return { isInfix: false, expr: `(${content.trim()})` };
-  }
-
-  // Check if all operators are the same
-  const firstOp = operators[0];
-  const allSame = operators.every((op) => op === firstOp);
-
-  if (!allSame) {
-    throw new Error(
-      `Mixed operators in curly form: found ${operators.join(', ')}`
-    );
-  }
-
-  // Build the s-expression: (OP arg1 arg2 ...)
-  const args = tokens.filter((t) => !INFIX_OPERATORS.includes(t));
-  const expr = `(${firstOp} ${args.join(' ')})`;
-
-  return { isInfix: true, expr };
-}
-
-/**
- * Simple tokenizer that splits on whitespace.
- * Handles quoted strings and nested parens as single tokens.
- */
-function tokenizeSimple(content) {
-  const tokens = [];
-  let i = 0;
-
-  while (i < content.length) {
-    // Skip whitespace
-    while (i < content.length && /[ \t]/.test(content[i])) {
-      i++;
-    }
-
-    if (i >= content.length) break;
-
-    const char = content[i];
-
-    if (char === '"') {
-      // String
-      let j = i + 1;
-      while (j < content.length && content[j] !== '"') {
-        if (content[j] === '\\') j++;
-        j++;
-      }
-      if (j < content.length) j++;
-      tokens.push(content.slice(i, j));
-      i = j;
-    } else if (char === '(' || char === ')' || char === '[' || char === ']') {
-      // Skip nested parens/brackets for now - treat as single token
-      let depth = 1;
-      let j = i + 1;
-      const closeChar = char === '(' ? ')' : char === '[' ? ']' : null;
-      if (!closeChar) {
-        j++;
-      } else {
-        while (j < content.length && depth > 0) {
-          if (content[j] === char) depth++;
-          else if (content[j] === closeChar) depth--;
-          j++;
-        }
-      }
-      tokens.push(content.slice(i, j));
-      i = j;
-    } else if (char === '<' || char === '>' || char === '=') {
-      // Handle <=, >=, = operators
-      if (i + 1 < content.length) {
-        const twoChar = content.slice(i, i + 2);
-        if (['<=', '>=', '=='].includes(twoChar)) {
-          tokens.push(twoChar);
-          i += 2;
-          continue;
-        }
-      }
-      tokens.push(char);
-      i++;
-    } else if (INFIX_OPERATORS.includes(char)) {
-      // Single-character operator
-      tokens.push(char);
-      i++;
-    } else if (/[a-zA-Z0-9_%\-*+\/!?.]/.test(char)) {
-      // Symbol or number
-      let j = i;
-      while (j < content.length && /[a-zA-Z0-9_%\-*+\/!?.]/.test(content[j])) {
-        j++;
-      }
-      tokens.push(content.slice(i, j));
-      i = j;
-    } else {
-      i++;
-    }
-  }
-
-  return tokens;
-}
-
-/**
- * Replace neoteric call sugar with s-expressions.
- * f(x) -> (f x)
- * f(x y) -> (f x y)
- * f[x] -> (f x)
- * f{x} -> (f x)
- * f(g(x)) -> (f (g x))
- */
-function replaceNeoteric(source, map) {
-  let result = source;
-  let changed = true;
-
-  // Process from innermost to outermost
-  while (changed) {
-    changed = false;
-    let newResult = '';
-    let i = 0;
-
-    while (i < result.length) {
-      // Look for symbol followed immediately by (, [, or {
-      // Symbol can include : for SuperCollider-style keywords like Synth:new
-      // Also can start with \ for SuperCollider symbols like \kick
-      if (/[a-zA-Z0-9_%\:*+\/<>=!?.]/.test(result[i]) || result[i] === '\\') {
-        let symbolMatch;
-        if (result[i] === '\\') {
-          // SuperCollider symbol starting with \
-          symbolMatch = result.slice(i).match(/^\\\\?[a-zA-Z0-9_%\-*+\/<>=!?.]+/);
-        } else {
-          symbolMatch = result.slice(i).match(/^[a-zA-Z0-9_%\:*+\/<>=!?.]+/);
-        }
-        if (symbolMatch) {
-          const symbol = symbolMatch[0];
-          const nextChar = result[i + symbol.length];
-
-          if (nextChar === '(' || nextChar === '[' || nextChar === '{') {
-            // Found neoteric pattern
-            const openChar = nextChar;
-            const closeChar = openChar === '(' ? ')' : openChar === '[' ? ']' : '}';
-
-            // Extract the arguments
-            const argsContent = extractBalanced(
-              result,
-              i + symbol.length,
-              openChar,
-              closeChar
-            );
-
-            if (argsContent !== null) {
-              const fullMatch = symbol + openChar + argsContent + closeChar;
-
-              // Recursively process nested forms in arguments
-              let args = replaceNeoteric(argsContent, map);
-              args = replaceCurlyInfix(args, map);
-
-              // Convert to s-expression
-              // If args are empty: (f)
-              // Otherwise: (f args...)
-              const expr = args.trim() === ''
-                ? `(${symbol})`
-                : `(${symbol} ${args})`;
-
-              newResult += expr;
-              i += fullMatch.length;
-              changed = true;
-              continue;
-            } else {
-              // Unclosed delimiter
-              throw new Error(
-                `Unclosed ${openChar} in neoteric form at position ${i + symbol.length}`
-              );
-            }
-          }
-        }
-      }
-
-      newResult += result[i];
-      i++;
-    }
-
-    result = newResult;
-  }
-
-  return result;
-}
-
 module.exports = {
   normalizeSweetToSexpr,
   SourceMap,
@@ -470,4 +525,7 @@ module.exports = {
   extractBalanced,
   parseInfixContent,
   tokenizeSimple,
+  handleLineContinuation,
+  handleIndentationGrouping,
+  stripComments,
 };
