@@ -1,20 +1,3 @@
-// Path aliases / alias resolution
-// ============================================================================
-
-Path SC_Filesystem::resolveIfAlias(const Path& p, bool& isAlias) {
-    isAlias = false;
-    return p;
-}
-
-// ============================================================================
-// Default directory helpers
-// ============================================================================
-
-Path SC_Filesystem::defaultSystemAppSupportDirectory() { return Path("/sc/system"); }
-Path SC_Filesystem::defaultUserHomeDirectory()          { return Path("/sc/home"); }
-Path SC_Filesystem::defaultUserAppSupportDirectory()    { return Path("/sc/user"); }
-Path SC_Filesystem::defaultUserConfigDirectory()        { return Path("/sc/config"); }
-=======
 /*
  * SC_Filesystem_wasm.cpp
  *
@@ -59,23 +42,7 @@ Path SC_Filesystem::resolveIfAlias(const Path& p, bool& isAlias) {
 Path SC_Filesystem::defaultSystemAppSupportDirectory() { return Path("/usr/share/SuperCollider"); }
 Path SC_Filesystem::defaultUserHomeDirectory()          { return Path("/home/user"); }
 Path SC_Filesystem::defaultUserAppSupportDirectory()    { return Path("/home/user/.local/share/SuperCollider"); }
-Path SC_Filesystem::defaultUserConfigDirectory()        { return Path("/home/user/.config/SuperCollider"); }============================================================================
-// Path aliases / alias resolution
-// ============================================================================
-
-Path SC_Filesystem::resolveIfAlias(const Path& p, bool& isAlias) {
-    isAlias = false;
-    return p;
-}
-
-// ============================================================================
-// Default directory helpers
-// ============================================================================
-
-Path SC_Filesystem::defaultSystemAppSupportDirectory() { return Path("/sc/system"); }
-Path SC_Filesystem::defaultUserHomeDirectory()          { return Path("/sc/home"); }
-Path SC_Filesystem::defaultUserAppSupportDirectory()    { return Path("/sc/user"); }
-Path SC_Filesystem::defaultUserConfigDirectory()        { return Path("/sc/config"); }
+Path SC_Filesystem::defaultUserConfigDirectory()        { return Path("/home/user/.config/SuperCollider"); }
 // Match the --preload-file destination in lang/CMakeLists.txt:
 //   --preload-file SCClassLibrary@/usr/share/SuperCollider/SCClassLibrary
 // SC_LanguageConfig appends "SCClassLibrary" to the resource dir, so we
