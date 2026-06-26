@@ -106,7 +106,7 @@ set(hclang_sources ${sclang_sources})
     set(SC_WASM_LANG_EXCLUSION_ENTRIES
         "primitives/unix_prim.cpp|Unix process/signal primitives are not available in browser runtime|docs/WASM_FEATURE_MATRIX.md|Phase 8"
         "primitives/sched.cpp|Native scheduler path still assumes non-browser threading/timing model|docs/WASM_STUB_ELIMINATION_PLAN.md#phase-2---remove-sclang-primitive-stub-surface|Phase 8"
-        "primitives/file_prim.cpp|File primitives use libc fgets; WASM uses NODEFS/memfs override|docs/QUARKS_CLI_PLAN.md|Phase Q"
+        "primitives/file_prim.cpp|File primitives use libc fgets - WASM uses NODEFS/memfs override|docs/QUARKS_CLI_PLAN.md|Phase Q"
     )
 
     set(hclang_excluded_sources)
