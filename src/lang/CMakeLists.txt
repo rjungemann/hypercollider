@@ -226,7 +226,11 @@ set(hclang_sources ${sclang_sources})
         set_target_properties(hclang PROPERTIES SUFFIX ".js")
 
         target_link_options(hclang PRIVATE
-            "SHELL:-s EXPORTED_FUNCTIONS=['_hc_wasm_eval_init','_hc_wasm_eval_boot','_hc_wasm_eval_string','_hc_wasm_eval_execute','_hc_wasm_eval_status','_hc_wasm_eval_set_post_callback','_hc_wasm_eval_set_error_callback','_hc_wasm_eval_boot_sequence','_hc_wasm_eval_heap_end','_hc_wasm_eval_add_include_path','_hc_wasm_quarks_set_available','_hc_wasm_quarks_available','_sc_wasm_midi_receive_short','_sc_wasm_midi_receive_sysex','_sc_wasm_unix_command_complete','_sc_wasm_process_system_clock_tasks','_malloc','_free']"
+            # NOTE: hc_wasm_quarks_available is defined via EM_JS in this path,
+            # so it's already exposed to JS at link time. wasm-ld cannot --export
+            # an EM_JS symbol (the C-side stub is synthesized after wasm-ld runs),
+            # so listing it here breaks the link.
+            "SHELL:-s EXPORTED_FUNCTIONS=['_hc_wasm_eval_init','_hc_wasm_eval_boot','_hc_wasm_eval_string','_hc_wasm_eval_execute','_hc_wasm_eval_status','_hc_wasm_eval_set_post_callback','_hc_wasm_eval_set_error_callback','_hc_wasm_eval_boot_sequence','_hc_wasm_eval_heap_end','_hc_wasm_eval_add_include_path','_hc_wasm_quarks_set_available','_sc_wasm_midi_receive_short','_sc_wasm_midi_receive_sysex','_sc_wasm_unix_command_complete','_sc_wasm_process_system_clock_tasks','_malloc','_free']"
             "SHELL:-s EXPORTED_RUNTIME_METHODS=['UTF8ToString','stringToUTF8','lengthBytesUTF8','writeArrayToMemory','ccall','cwrap','HEAPU8','HEAP32','HEAPF32','HEAPF64','allocateUTF8','addFunction','removeFunction','FS','NODEFS']"
             "SHELL:-lnodefs.js"
             "SHELL:-s ALLOW_MEMORY_GROWTH=1"
