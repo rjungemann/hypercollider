@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.2] — 2026-06-25
+
+### Fixed
+- **WASM (Emscripten) build**: dropped `_hc_wasm_quarks_available` from `EXPORTED_FUNCTIONS` in `src/lang/CMakeLists.txt`. The symbol is defined via `EM_JS` and cannot be resolved by `wasm-ld --export`; the bad entry blocked the WASM (Linux) job in the v0.1.1 release pipeline, which in turn blocked the native bundles (Linux, macOS).
+
 ## [0.1.1] — 2026-06-25
 
 ### Fixed
