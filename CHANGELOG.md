@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.5] — 2026-06-26
+
+### Fixed
+- **WAMR-native hclang build**: dropped the invalid 4th argument from the `--extra-class-path` CLI11 `add_option` call in `native/hclang_host/main.cpp`. CLI11's vector overload only accepts up to 3 arguments, so the trailing `true` made the file fail to compile — which had blocked every native bundle job in the release pipeline since v0.1.0, meaning no prior v0.1.x release ever actually produced the WAMR-native `hclang` binary.
+
 ## [0.1.4] — 2026-06-25
 
 ### Fixed
