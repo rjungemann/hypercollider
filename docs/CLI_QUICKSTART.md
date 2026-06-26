@@ -131,6 +131,35 @@ just scscm-example fm_synthesis
 
 ---
 
+## Using HyperCollider with mise
+
+If you manage tool versions with [mise](https://mise.jdx.dev) (or asdf),
+the [`asdf-hypercollider`](https://github.com/rjungemann/asdf-hypercollider)
+plugin installs prebuilt release tarballs — no Emscripten, no source
+build:
+
+```bash
+mise plugin install hypercollider https://github.com/rjungemann/asdf-hypercollider.git
+mise install hypercollider@latest
+mise exec -- hclang --help
+```
+
+`hclang` and `hcsynth` resolve to the **WAMR-native** binaries —
+self-contained, no Node runtime required. `hclang-wasm` / `hcsynth-wasm`
+are kept as explicit aliases for users who want the Node-hosted variant
+(and need Node on PATH).
+
+```toml
+# .mise.toml — native binaries need no extra runtime
+[tools]
+hypercollider = "latest"
+# node = "20"  # only if you'll use the -wasm shims
+```
+
+The plugin and the Homebrew formula are independent — pick whichever
+matches your toolchain. See [MISE_PLUGIN_PLAN.md](MISE_PLUGIN_PLAN.md)
+for the asset contract.
+
 ## Next steps
 
 - Full flag reference: [CLI_REFERENCE.md](CLI_REFERENCE.md)

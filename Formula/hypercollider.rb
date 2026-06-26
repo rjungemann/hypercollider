@@ -10,6 +10,11 @@
 # To install the development (HEAD) build:
 #   brew install --HEAD rjungemann/hypercollider/hypercollider
 #
+# Already on mise / asdf? See https://github.com/rjungemann/asdf-hypercollider
+# for a native plugin that fetches prebuilt release tarballs — no Emscripten,
+# no source build. Pick whichever matches your toolchain; the formula and
+# the plugin are independent installers consuming the same release assets.
+#
 # After installation the following commands are available:
 #   hclang-wasm         — WASM hclang via Node.js
 #   hcsynth-wasm        — WASM hcsynth via Node.js

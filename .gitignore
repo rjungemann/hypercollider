@@ -49,3 +49,9 @@ bench/results/
 
 # Auto-generated followup / analysis docs
 docs/BENCH_FOLLOWUP.md
+
+# asdf/mise plugin scaffold (lives in its own repo: rjungemann/asdf-hypercollider)
+asdf-hypercollider/
+
+# Local Claude Code agent state
+.claude/

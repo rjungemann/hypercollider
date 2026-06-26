@@ -10,6 +10,15 @@ const { startServers } = require('./hc_net');
 const { createOscQueryServer } = require('./hc_oscquery');
 const { advertiseServer } = require('./hc_zeroconf');
 
+// Default location for hcsynth.js. Honors HC_LIBEXEC_DIR when set so a
+// packaged install (asdf-style plugin, etc.) can point the CLI at its
+// bundled WASM artifacts without every user needing --scsynth-js.
+function defaultScsynthJs() {
+  const dir = process.env.HC_LIBEXEC_DIR;
+  if (dir) return path.join(dir, 'hcsynth.js');
+  return 'build/wasm/server/hcsynth/hcsynth.js';
+}
+
 function parseArgs(argv) {
   const out = {
     // offline render fields
@@ -38,7 +47,7 @@ function parseArgs(argv) {
     // shared fields
     sampleRate: 48000,
     blockSize: 512,
-    scsynthJs: 'build/wasm/server/hcsynth/hcsynth.js',
+    scsynthJs: defaultScsynthJs(),
     verbosity: VERBOSITY_NORMAL,
   };
 

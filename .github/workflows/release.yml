@@ -1,0 +1,391 @@
+name: Release bundle
+
+# Tag-triggered workflow that builds the per-target HyperCollider release
+# tarballs the asdf-hypercollider plugin (and future tooling) consume.
+#
+# Asset contract — anything renamed here must be mirrored in the plugin
+# (docs/MISE_PLUGIN_PLAN.md):
+#
+#   hypercollider-v<X.Y.Z>-<arch>-<os>.tar.gz       (per native target)
+#   hypercollider-v<X.Y.Z>-<arch>-<os>.tar.gz.sha256
+#   hypercollider-v<X.Y.Z>-wasm.tar.gz              (host-agnostic bundle)
+#   hypercollider-v<X.Y.Z>-wasm.tar.gz.sha256
+#   SHA256SUMS                                      (combined, human-friendly)
+#
+# Tarball layout (per the plugin plan):
+#   bin/
+#     hclang hcsynth                  # canonical entry points
+#                                       — native target: -> WAMR-native binary
+#                                       — wasm tarball : -> Node WASM shim
+#     hclang-wamr-full hcsynth-wamr-full  # explicit WAMR-native (native targets only)
+#     hclang-wasm hcsynth-wasm        # explicit Node WASM (every tarball)
+#   libexec/
+#     hclang.js hclang.wasm hclang.data hclang_classlib.pack hclang_snap.bin
+#     hcsynth.js hcsynth.wasm hcsynth.data
+#     cli/                            # full cli/ tree (the *.js wrappers + deps)
+#   share/hypercollider/classlib/
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to bundle (e.g. v0.1.0). For manual dry-runs.'
+        required: true
+
+permissions:
+  contents: write  # upload release assets
+
+jobs:
+  # ── Stage 1: build the WASM bundle once (host-agnostic) ──────────────────
+  build-wasm:
+    name: Build WASM bundle (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Install CLI deps (production-only, no native addons)
+        run: npm ci --omit=optional --ignore-scripts
+        working-directory: cli
+
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: '3.1.73'
+          actions-cache-folder: emsdk-cache
+
+      - name: Configure WASM build
+        run: cmake --preset wasm_release
+
+      - name: Build hclang + hcsynth
+        run: |
+          cmake --build build/wasm --target hclang  -j$(nproc) &
+          cmake --build build/wasm --target hcsynth -j$(nproc) &
+          wait
+
+      - name: Stage WASM artifacts
+        run: |
+          mkdir -p wasm-stage/libexec wasm-stage/cli
+          cp build/wasm/lang/hclang/hclang.js              wasm-stage/libexec/
+          cp build/wasm/lang/hclang/hclang.wasm            wasm-stage/libexec/
+          cp build/wasm/lang/hclang/hclang.data            wasm-stage/libexec/ 2>/dev/null || true
+          cp build/wasm/lang/hclang/hclang_classlib.pack   wasm-stage/libexec/ 2>/dev/null || true
+          cp build/wasm/lang/hclang/hclang_snap.bin        wasm-stage/libexec/ 2>/dev/null || true
+          cp build/wasm/server/hcsynth/hcsynth.js          wasm-stage/libexec/
+          cp build/wasm/server/hcsynth/hcsynth.wasm        wasm-stage/libexec/
+          cp build/wasm/server/hcsynth/hcsynth.data        wasm-stage/libexec/ 2>/dev/null || true
+          # Bundle the cli/ tree (JS wrappers + node_modules).
+          # cli/node_modules was populated by `npm ci` above.
+          rsync -a --exclude='tests' --exclude='examples' cli/ wasm-stage/cli/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-stage
+          path: wasm-stage/
+          if-no-files-found: error
+
+  # ── Stage 2: build the WASI .wasm blobs once (linked into native hosts) ──
+  build-wasi:
+    name: Build WASI .wasm (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 5.0.5
+          actions-cache-folder: emsdk-cache
+
+      - name: Build WASI bundle
+        run: |
+          cmake --preset wasi_release
+          cmake --build build/wasi --target hclang hcsynth -j$(nproc)
+
+      - name: Stage WASI artifacts
+        run: |
+          mkdir -p wasi-stage
+          cp build/wasi/lang/hclang/hclang.wasm           wasi-stage/
+          cp build/wasi/lang/hclang/hclang_classlib.pack  wasi-stage/ 2>/dev/null || true
+          cp build/wasi/server/hcsynth/hcsynth.wasm       wasi-stage/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasi-blobs
+          path: wasi-stage/
+          if-no-files-found: error
+
+  # ── Stage 3: build native WAMR hosts per target, assemble tarballs ──────
+  bundle-native:
+    name: Bundle ${{ matrix.target }}
+    needs: [build-wasm, build-wasi]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+          - os: macos-14
+            target: arm64-macos
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          version="${tag#v}"
+          echo "tag=$tag"           >> "$GITHUB_OUTPUT"
+          echo "version=$version"   >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm-stage
+          path: wasm-stage
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasi-blobs
+          path: wasi-stage
+
+      - name: Restore WASI tree layout
+        shell: bash
+        run: |
+          mkdir -p build/wasi/lang/hclang build/wasi/server/hcsynth
+          cp wasi-stage/hclang.wasm           build/wasi/lang/hclang/
+          cp wasi-stage/hclang_classlib.pack  build/wasi/lang/hclang/ 2>/dev/null || true
+          cp wasi-stage/hcsynth.wasm          build/wasi/server/hcsynth/
+
+      - name: Build native WAMR hosts
+        shell: bash
+        run: |
+          cmake -B build/native -S native \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHC_EMBED_WASM=ON \
+            -DHC_REQUIRE_EMBEDDED_WASM=ON
+          cmake --build build/native --config Release \
+            --target hclang_native hcsynth_native -j
+
+      - name: Assemble release tarball
+        shell: bash
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          root="staging/hypercollider-v${VERSION}"
+          mkdir -p "$root/bin" "$root/libexec" "$root/share/hypercollider/classlib"
+
+          # 1. WASM libexec + cli tree (host-agnostic).
+          cp -R wasm-stage/libexec/. "$root/libexec/"
+          cp -R wasm-stage/cli       "$root/libexec/cli"
+
+          # 2. Native WAMR host binaries, renamed to the plugin contract.
+          install -m 0755 \
+            $(find build/native -name hclang_native -type f | head -1) \
+            "$root/bin/hclang-wamr-full"
+          install -m 0755 \
+            $(find build/native -name hcsynth_native -type f | head -1) \
+            "$root/bin/hcsynth-wamr-full"
+
+          # 3. SC class library (consumed by hclang-wamr-full via --classlib-dir).
+          rsync -a src/class_library/ "$root/share/hypercollider/classlib/"
+
+          # 4. Node-shim wrappers. HC_LIBEXEC_DIR points the *.js scripts at
+          #    libexec/; HC_CLASSLIB_DIR is forwarded to the native binaries
+          #    so users can override the bundled classlib without re-bundling.
+          cat > "$root/bin/hclang-wasm" <<'SH'
+          #!/usr/bin/env bash
+          here="$(cd "$(dirname "$0")/.." && pwd)"
+          export HC_LIBEXEC_DIR="${HC_LIBEXEC_DIR:-$here/libexec}"
+          exec node "$here/libexec/cli/hclang.js" "$@"
+          SH
+          cat > "$root/bin/hcsynth-wasm" <<'SH'
+          #!/usr/bin/env bash
+          here="$(cd "$(dirname "$0")/.." && pwd)"
+          export HC_LIBEXEC_DIR="${HC_LIBEXEC_DIR:-$here/libexec}"
+          exec node "$here/libexec/cli/hcsynth.js" "$@"
+          SH
+          chmod 0755 "$root/bin/hclang-wasm" "$root/bin/hcsynth-wasm"
+
+          # Wrap the native binaries so HC_CLASSLIB_DIR flows in as --classlib-dir.
+          mv "$root/bin/hclang-wamr-full" "$root/bin/.hclang-wamr-full-bin"
+          mv "$root/bin/hcsynth-wamr-full" "$root/bin/.hcsynth-wamr-full-bin"
+          cat > "$root/bin/hclang-wamr-full" <<'SH'
+          #!/usr/bin/env bash
+          here="$(cd "$(dirname "$0")/.." && pwd)"
+          classlib="${HC_CLASSLIB_DIR:-$here/share/hypercollider/classlib}"
+          exec "$here/bin/.hclang-wamr-full-bin" --classlib-dir "$classlib" "$@"
+          SH
+          cat > "$root/bin/hcsynth-wamr-full" <<'SH'
+          #!/usr/bin/env bash
+          here="$(cd "$(dirname "$0")/.." && pwd)"
+          exec "$here/bin/.hcsynth-wamr-full-bin" "$@"
+          SH
+          chmod 0755 "$root/bin/hclang-wamr-full" "$root/bin/hcsynth-wamr-full"
+
+          # On native targets the canonical `hclang` / `hcsynth` commands
+          # resolve to the WAMR-native binaries — fully self-contained, no
+          # Node dependency. The `-wasm` shims stay available for users who
+          # explicitly want the Node-hosted variant.
+          ln -s hclang-wamr-full  "$root/bin/hclang"
+          ln -s hcsynth-wamr-full "$root/bin/hcsynth"
+
+          # 5. Tar it.
+          asset="hypercollider-v${VERSION}-${TARGET}.tar.gz"
+          tar -C staging -czf "$asset" "hypercollider-v${VERSION}"
+
+          # 6. SHA-256 sidecar.
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$asset" > "${asset}.sha256"
+          else
+            shasum -a 256 "$asset" > "${asset}.sha256"
+          fi
+          ls -la "$asset"*
+
+      - name: Smoke test bundle
+        shell: bash
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          # Install node_modules for the runtime check; npm ci already ran
+          # for wasm-stage but the bundle is unpacked fresh here.
+          (cd "staging/hypercollider-v${VERSION}/libexec/cli" && npm ci --omit=optional --ignore-scripts)
+          # Canonical entry points resolve to WAMR-native on native targets.
+          "staging/hypercollider-v${VERSION}/bin/hclang"  --help >/dev/null || true
+          "staging/hypercollider-v${VERSION}/bin/hcsynth" --help >/dev/null || true
+          "staging/hypercollider-v${VERSION}/bin/hclang-wamr-full"  --help >/dev/null || true
+          "staging/hypercollider-v${VERSION}/bin/hcsynth-wamr-full" --help >/dev/null || true
+          # Node-hosted shims stay available for users who explicitly want them.
+          "staging/hypercollider-v${VERSION}/bin/hclang-wasm"  --version
+          "staging/hypercollider-v${VERSION}/bin/hcsynth-wasm" --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.target }}
+          path: |
+            hypercollider-v*.tar.gz
+            hypercollider-v*.tar.gz.sha256
+          if-no-files-found: error
+
+  # ── Stage 4: assemble the wasm-only bundle ──────────────────────────────
+  bundle-wasm:
+    name: Bundle wasm
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          version="${tag#v}"
+          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasm-stage
+          path: wasm-stage
+
+      - name: Assemble wasm tarball
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          root="staging/hypercollider-v${VERSION}"
+          mkdir -p "$root/bin" "$root/libexec" "$root/share/hypercollider/classlib"
+          cp -R wasm-stage/libexec/. "$root/libexec/"
+          cp -R wasm-stage/cli       "$root/libexec/cli"
+          rsync -a src/class_library/ "$root/share/hypercollider/classlib/"
+
+          cat > "$root/bin/hclang-wasm" <<'SH'
+          #!/usr/bin/env bash
+          here="$(cd "$(dirname "$0")/.." && pwd)"
+          export HC_LIBEXEC_DIR="${HC_LIBEXEC_DIR:-$here/libexec}"
+          exec node "$here/libexec/cli/hclang.js" "$@"
+          SH
+          cat > "$root/bin/hcsynth-wasm" <<'SH'
+          #!/usr/bin/env bash
+          here="$(cd "$(dirname "$0")/.." && pwd)"
+          export HC_LIBEXEC_DIR="${HC_LIBEXEC_DIR:-$here/libexec}"
+          exec node "$here/libexec/cli/hcsynth.js" "$@"
+          SH
+          chmod 0755 "$root/bin/hclang-wasm" "$root/bin/hcsynth-wasm"
+
+          # No native binary in the wasm-only bundle, so the canonical
+          # `hclang` / `hcsynth` commands fall back to the Node shims.
+          ln -s hclang-wasm  "$root/bin/hclang"
+          ln -s hcsynth-wasm "$root/bin/hcsynth"
+
+          asset="hypercollider-v${VERSION}-wasm.tar.gz"
+          tar -C staging -czf "$asset" "hypercollider-v${VERSION}"
+          sha256sum "$asset" > "${asset}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-wasm
+          path: |
+            hypercollider-v*.tar.gz
+            hypercollider-v*.tar.gz.sha256
+          if-no-files-found: error
+
+  # ── Stage 5: publish to the GitHub Release ──────────────────────────────
+  publish:
+    name: Publish release assets
+    needs: [bundle-native, bundle-wasm]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: bundles
+          pattern: bundle-*
+          merge-multiple: true
+
+      - name: Combined SHA256SUMS
+        working-directory: bundles
+        run: |
+          sha256sum hypercollider-v*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            bundles/hypercollider-v*.tar.gz
+            bundles/hypercollider-v*.tar.gz.sha256
+            bundles/SHA256SUMS
+          fail_on_unmatched_files: true

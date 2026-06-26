@@ -13,11 +13,20 @@ const { createUnixBridge } = require('./hc_unix');
 const { compileScscmText } = require('./lhc_compile');
 const { browseLan } = require('./hc_zeroconf');
 
+// Default location for hclang.js. Honors HC_LIBEXEC_DIR when set so a
+// packaged install (asdf-style plugin, etc.) can point the CLI at its
+// bundled WASM artifacts without every user needing --sclang-js.
+function defaultSclangJs() {
+  const dir = process.env.HC_LIBEXEC_DIR;
+  if (dir) return path.join(dir, 'hclang.js');
+  return 'build/wasm/lang/hclang/hclang.js';
+}
+
 function parseArgs(argv) {
   const out = {
     script: null,
     output: null,
-    sclangJs: 'build/wasm/lang/hclang/hclang.js',
+    sclangJs: defaultSclangJs(),
     verbose: false,
     verbosity: VERBOSITY_NORMAL,
     scsynthHost: null,
