@@ -257,6 +257,10 @@ set(WASM_EXPORTED_FUNCTIONS
         )
     else()
         # ── Browser / Node.js path ─────────────────────────────────────────
+        # Force the .js suffix so the output matches what the release workflow
+        # stages. Emscripten >= 4.x sets CMAKE_EXECUTABLE_SUFFIX=".js"
+        # automatically, but the pinned 3.1.73 used in CI does not.
+        set_target_properties(hcsynth PROPERTIES SUFFIX ".js")
         target_link_options(hcsynth PRIVATE
             "SHELL:-s EXPORTED_FUNCTIONS=[${WASM_EF_CSV}]"
             "SHELL:-s EXPORTED_RUNTIME_METHODS=[ccall,cwrap,HEAPU8,HEAPF32,FS,IDBFS]"
