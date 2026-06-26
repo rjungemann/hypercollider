@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.4] — 2026-06-25
+
+### Fixed
+- **hcsynth (Emscripten)**: explicitly set `SUFFIX=".js"` on the hcsynth target's Emscripten branch. Emscripten 3.1.73 (pinned in the release workflow) doesn't apply `CMAKE_EXECUTABLE_SUFFIX=".js"` automatically, so the build produced an extension-less `hcsynth` binary instead of `hcsynth.js`, breaking the release pipeline's Stage WASM step. Mirrors the explicit suffix already in place for hclang.
+
 ## [0.1.3] — 2026-06-25
 
 ### Fixed
