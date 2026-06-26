@@ -906,8 +906,7 @@ int main(int argc, char** argv) {
     app.add_option("--extra-class-path", opts.extra_class_paths,
                                      "Additional class library path to search. "
                                      "Can be specified multiple times. "
-                                     "Mounted at /extra-class-lib/<n>/<basename> in WASI.",
-                                     true);
+                                     "Mounted at /extra-class-lib/<n>/<basename> in WASI.");
     app.add_flag  ("--no-server-boot", opts.no_server_boot,
                                      "Fake Server.default into 'booted' "
                                      "state and point its addr at "
