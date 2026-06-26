@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.3] — 2026-06-25
+
+### Fixed
+- **Release pipeline**: disable `HCLANG_BUILD_SNAPSHOT` for the WASM (Linux) job. The POST_BUILD snapshot generator runs the freshly-built `hclang.js` under Node and fails in CI (no quarks dir), prompting CMake to delete `hclang.js` and breaking the downstream Stage / bundle jobs. The snapshot is a Node-WASM optimization not consumed by the WAMR-native release binaries.
+
 ## [0.1.2] — 2026-06-25
 
 ### Fixed
