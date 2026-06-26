@@ -64,7 +64,11 @@ jobs:
           actions-cache-folder: emsdk-cache
 
       - name: Configure WASM build
-        run: cmake --preset wasm_release
+        # Snapshot generation runs the freshly-built hclang.js to capture a
+        # boot snapshot. It depends on host state (quarks dir, etc.) that
+        # CI doesn't have, and it's not required by the WAMR-native release
+        # binaries that consume this build's output.
+        run: cmake --preset wasm_release -DHCLANG_BUILD_SNAPSHOT=OFF
 
       - name: Build hclang + hcsynth
         run: |
