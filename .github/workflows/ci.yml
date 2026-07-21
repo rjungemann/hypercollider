@@ -92,10 +92,11 @@ jobs:
         run: cmake --preset wasm_release
 
       - name: Build hcsynth and hclang
-        run: |
-          cmake --build build/wasm --target hcsynth -j$(nproc) &
-          cmake --build build/wasm --target hclang  -j$(nproc) &
-          wait
+        # Single cmake invocation — two concurrent `cmake --build` processes
+        # against the same build tree race on shared deps (e.g. tlsf) and can
+        # fail with "llvm-ranlib: unable to load 'libtlsf.a'". A bare `wait`
+        # also returns 0, masking any build failure until staging.
+        run: cmake --build build/wasm --target hcsynth hclang -j$(nproc)
 
       - name: Stage test artifacts
         run: |

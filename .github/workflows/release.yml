@@ -71,10 +71,15 @@ jobs:
         run: cmake --preset wasm_release -DHCLANG_BUILD_SNAPSHOT=OFF
 
       - name: Build hclang + hcsynth
-        run: |
-          cmake --build build/wasm --target hclang  -j$(nproc) &
-          cmake --build build/wasm --target hcsynth -j$(nproc) &
-          wait
+        # Build both targets in a SINGLE cmake invocation. Running two
+        # concurrent `cmake --build` processes against the same build tree
+        # races on shared dependency targets (e.g. tlsf): one process's
+        # `ar`/`ranlib` reads libtlsf.a while the other rewrites it, giving
+        # "llvm-ranlib: unable to load 'libtlsf.a'" and a failed hclang build.
+        # A single invocation lets make schedule the shared deps once and
+        # propagates the real exit code (a bare `wait` returns 0 and masks
+        # the failure until it surfaces as a missing hclang.js at staging).
+        run: cmake --build build/wasm --target hclang hcsynth -j$(nproc)
 
       - name: Stage WASM artifacts
         run: |
@@ -145,6 +150,8 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-linux
+          - os: ubuntu-24.04-arm
+            target: arm64-linux
           - os: macos-14
             target: arm64-macos
     steps:

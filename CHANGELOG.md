@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6] — 2026-07-21
+
+### Fixed
+- **Release pipeline (Linux/wasm assets never published)**: the `build-wasm` job built `hclang` and `hcsynth` as two concurrent `cmake --build` invocations against the same build tree, which raced on the shared `tlsf` dependency (`llvm-ranlib: unable to load 'libtlsf.a'`). The `hclang` target failed to compile, and a bare `wait` masked the failure until it surfaced as a missing `hclang.js` at the staging step. Because `build-wasm` gates `bundle-native`, `bundle-wasm`, and `publish`, the failure skipped every downstream job — so no prior v0.1.x release ever published the `x86_64-linux` or `wasm` tarballs (v0.1.5's macOS asset was uploaded by hand). Both targets now build in a single `cmake --build` invocation. Applied to the CI workflow's equivalent step as well.
+
+### Added
+- **`arm64-linux` release target**: the `bundle-native` matrix now builds an `arm64-linux` bundle (on `ubuntu-24.04-arm`) alongside `x86_64-linux` and `arm64-macos`. The asdf/mise plugin already resolves `arm64-linux` as a target, so ARM Linux hosts (Raspberry Pi, ARM cloud instances) can now `mise install hypercollider` without a source build.
+
 ## [0.1.5] — 2026-06-26
 
 ### Fixed
