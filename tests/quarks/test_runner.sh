@@ -16,7 +16,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# tests/quarks -> the repository root.
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # defaults
 TRACK="both"
@@ -55,18 +56,18 @@ declare -a failed_tests=()
 # Helper functions
 pass() {
     echo -e "${GREEN}✓${NC} $1"
-    ((pass_count++))
+    pass_count=$((pass_count + 1))  # ((x++)) is status 1 at 0, which set -e exits on
 }
 
 fail() {
     echo -e "${RED}✗${NC} $1"
-    ((fail_count++))
+    fail_count=$((fail_count + 1))
     failed_tests+=("$1")
 }
 
 skip() {
     echo -e "${YELLOW}⊘${NC} $1 (skipped)"
-    ((skip_count++))
+    skip_count=$((skip_count + 1))
 }
 
 # Check if command exists
@@ -81,10 +82,11 @@ git_available() {
 
 # Resolve paths to built artifacts
 resolve_hclang_js() {
-    # Try various locations
+    # The Node CLI: the `cli` bundle, else the checkout's copy. Not
+    # build/wasm/lang/hclang/hclang.js -- that is the Emscripten module the
+    # CLI loads, and run directly it prints nothing.
     for path in \
         "$PROJECT_ROOT/build/wasm/cli/hclang.js" \
-        "$PROJECT_ROOT/build/wasm/lang/hclang/hclang.js" \
         "$PROJECT_ROOT/cli/hclang.js"; do
         if [[ -f "$path" ]]; then
             echo "$path"
@@ -105,6 +107,34 @@ resolve_hclang_native() {
     done
     return 1
 }
+
+# Neither CLI reads a script from stdin (`--script -` names a file called
+# "-"), so each test's heredoc goes through a temp file. Node's hclang also
+# needs --output, and prints post output only with --verbose.
+run_hclang_js() {
+    local f out rc=0
+    f=$(mktemp)
+    cat > "$f"
+    out=$(cd "$PROJECT_ROOT" && node "$hclang_js" --verbose --no-zeroconf \
+        --output "$f.json" --script "$f" "$@" 2>&1) || rc=$?
+    rm -f "$f" "$f.json"
+    printf '%s\n' "$out"
+    return $rc
+}
+
+run_hclang_native() {
+    local f out rc=0
+    f=$(mktemp)
+    cat > "$f"
+    out=$(cd "$PROJECT_ROOT" && "$hclang_native" "$@" --script "$f" 2>&1) || rc=$?
+    rm -f "$f"
+    printf '%s\n' "$out"
+    return $rc
+}
+
+# Checks match a whole output line (grep -x): an error dump echoes the
+# receiver and the call stack, so a bare substring match can pass on the very
+# failure it is meant to catch.
 
 # ============================================================================
 # Track A Tests - Node.js CLI
@@ -141,11 +171,11 @@ run_track_a() {
     echo "  Track A - Node.js CLI Tests"
     echo "========================================"
     
-    # TA-1: Pipe primitive round-trip
+    # TA-1: Pipe primitive round-trip. callSync(command, onSuccess, onError)
+    # hands onSuccess the output and returns a close function.
     echo -n "  TA-1: Pipe.callSync round-trip... "
-    if output=$(cd "$PROJECT_ROOT" && node "$hclang_js" --script - <<'SC' 2>&1
-var p = Pipe.callSync("echo hello", "r");
-p[0].postln;
+    if output=$(run_hclang_js <<'SC'
+Pipe.callSync("echo hello", { |out| out.postln }, { "callSync failed".postln });
 SC
 ) && echo "$output" | grep -q "^hello$"; then
         pass "TA-1: Pipe.callSync round-trip"
@@ -166,12 +196,12 @@ TestQuark { *ping { ^\pong } }
 SC
     
     # First run: install (using extra-class-path to simulate)
-    if output=$(cd "$PROJECT_ROOT" && node "$hclang_js" \
+    if output=$(run_hclang_js \
         --extra-class-path "$HOST_DIR" \
-        --script - <<'SC' 2>&1
+        <<'SC'
 TestQuark.ping.postln;
 SC
-) && echo "$output" | grep -q "pong"; then
+) && echo "$output" | grep -qx "pong"; then
         pass "TA-2: NODEFS quarks persistence"
     else
         fail "TA-2: NODEFS quarks persistence"
@@ -186,12 +216,12 @@ SC
 TestExtraClass { *hello { ^"hello from extra class" } }
 SC
     
-    if output=$(cd "$PROJECT_ROOT" && node "$hclang_js" \
+    if output=$(run_hclang_js \
         --extra-class-path "$QUARK_DIR" \
-        --script - <<'SC' 2>&1
+        <<'SC'
 TestExtraClass.hello.postln;
 SC
-) && echo "$output" | grep -q "hello from extra class"; then
+) && echo "$output" | grep -qx "hello from extra class"; then
         pass "TA-3: --extra-class-path compiles pre-staged quark"
     else
         fail "TA-3: --extra-class-path"
@@ -200,10 +230,10 @@ SC
     
     # TA-4: Quarks.supported returns true on Node.js
     echo -n "  TA-4: Quarks.supported... "
-    if output=$(cd "$PROJECT_ROOT" && node "$hclang_js" --script - <<'SC' 2>&1
+    if output=$(run_hclang_js <<'SC'
 Quarks.supported.postln;
 SC
-) && echo "$output" | grep -q "true"; then
+) && echo "$output" | grep -qx "true"; then
         pass "TA-4: Quarks.supported returns true"
     else
         fail "TA-4: Quarks.supported"
@@ -214,7 +244,7 @@ SC
     # Note: This test is meant for WAMR without --quarks-dir, but we can test
     # that the guard doesn't crash on Node.js (where quarks ARE supported)
     echo -n "  TA-5: String#include guard... "
-    if output=$(cd "$PROJECT_ROOT" && node "$hclang_js" --script - <<'SC' 2>&1
+    if output=$(run_hclang_js <<'SC'
 "SomeMissingQuark".include;
 SC
 ) && echo "$output" | grep -q "Quarks are not available\|installed"; then
@@ -252,7 +282,7 @@ run_track_b() {
     
     # TB-1: hc_host_exec fires a host-side command
     echo -n "  TB-1: hc_host_exec... "
-    if output=$(cd "$PROJECT_ROOT" && "$hclang_native" --script - <<'SC' 2>&1
+    if output=$(run_hclang_native <<'SC'
 var rc = "true".systemCmd;
 rc.postln;
 SC
@@ -265,10 +295,10 @@ SC
     
     # TB-2: hc_host_exec_capture captures stdout
     echo -n "  TB-2: hc_host_exec_capture... "
-    if output=$(cd "$PROJECT_ROOT" && "$hclang_native" --script - <<'SC' 2>&1
+    if output=$(run_hclang_native <<'SC'
 "echo capture-test".unixCmdGetStdOut.postln;
 SC
-) && echo "$output" | grep -q "capture-test"; then
+) && echo "$output" | grep -qx "capture-test"; then
         pass "TB-2: hc_host_exec_capture captures stdout"
     else
         fail "TB-2: hc_host_exec_capture"
@@ -284,12 +314,12 @@ SC
 TestQuark { *ping { ^\pong } }
 SC
     
-    if output=$(cd "$PROJECT_ROOT" && "$hclang_native" \
+    if output=$(run_hclang_native \
         --quarks-dir "$QUARKS_HOST" \
-        --script - <<'SC' 2>&1
+        <<'SC'
 TestQuark.ping.postln;
 SC
-) && echo "$output" | grep -q "pong"; then
+) && echo "$output" | grep -qx "pong"; then
         pass "TB-3: --quarks-dir pre-open"
     else
         fail "TB-3: --quarks-dir pre-open"
@@ -303,17 +333,22 @@ SC
     else
         QUARKS_HOST=$(mktemp -d)
         trap "rm -rf $QUARKS_HOST" EXIT
-        REPO=$(mktemp -d)
-        trap "rm -rf $REPO" EXIT
-        
-        git init "$REPO"
+        REPO_PARENT=$(mktemp -d)
+        trap "rm -rf $REPO_PARENT" EXIT
+        # A name without a dot: a quark installed from a URL is named after its
+        # last component minus any extension (so "foo.git" is "foo"), and every
+        # mktemp name has one.
+        REPO="$REPO_PARENT/TestRepoQuark"
+        mkdir "$REPO"
+
+        git init -q "$REPO"
         git -C "$REPO" config user.email "test@test.com"
         git -C "$REPO" config user.name "Test"
         git -C "$REPO" commit --allow-empty -m 'init'
         
-        if output=$(cd "$PROJECT_ROOT" && "$hclang_native" \
+        if output=$(run_hclang_native \
             --quarks-dir "$QUARKS_HOST" \
-            --script - <<SC 2>&1
+            <<SC
 Quarks.install("file://$REPO");
 SC
 ); then
@@ -332,10 +367,10 @@ SC
     
     # TB-5: Quarks.supported is false without --quarks-dir
     echo -n "  TB-5: Quarks.supported without --quarks-dir... "
-    if output=$(cd "$PROJECT_ROOT" && "$hclang_native" --script - <<'SC' 2>&1
+    if output=$(run_hclang_native <<'SC'
 Quarks.supported.postln;
 SC
-) && echo "$output" | grep -q "false"; then
+) && echo "$output" | grep -qx "false"; then
         pass "TB-5: Quarks.supported is false without --quarks-dir"
     else
         fail "TB-5: Quarks.supported without --quarks-dir"
@@ -347,12 +382,12 @@ SC
     QUARKS_HOST=$(mktemp -d)
     trap "rm -rf $QUARKS_HOST" EXIT
     
-    if output=$(cd "$PROJECT_ROOT" && "$hclang_native" \
+    if output=$(run_hclang_native \
         --quarks-dir "$QUARKS_HOST" \
-        --script - <<'SC' 2>&1
+        <<'SC'
 Quarks.supported.postln;
 SC
-) && echo "$output" | grep -q "true"; then
+) && echo "$output" | grep -qx "true"; then
         pass "TB-6: Quarks.supported is true with --quarks-dir"
     else
         fail "TB-6: Quarks.supported with --quarks-dir"
@@ -367,12 +402,12 @@ SC
 TestExtraClass { *hello { ^"hello from extra class" } }
 SC
     
-    if output=$(cd "$PROJECT_ROOT" && "$hclang_native" \
+    if output=$(run_hclang_native \
         --extra-class-path "$QUARK_DIR" \
-        --script - <<'SC' 2>&1
+        <<'SC'
 TestExtraClass.hello.postln;
 SC
-) && echo "$output" | grep -q "hello from extra class"; then
+) && echo "$output" | grep -qx "hello from extra class"; then
         pass "TB-7: --extra-class-path (WAMR)"
     else
         fail "TB-7: --extra-class-path (WAMR)"
@@ -445,12 +480,13 @@ run_shared_tests() {
         local hclang_native
         hclang_native=$(resolve_hclang_native)
         if [[ -n "$hclang_native" ]]; then
-            if output=$(cd "$PROJECT_ROOT" && "$hclang_native" --script - <<'SC' 2>&1
+            if output=$(run_hclang_native <<'SC'
 var out = "python3 -c 'print(\"x\" * 100000)'".unixCmdGetStdOut;
 out.size.postln;
 SC
 ); then
-                size=$(echo "$output" | grep -o '[0-9]*$' | head -1)
+                # The size's own line: the boot also prints "hclang_*_ms: N".
+                size=$(echo "$output" | grep -E '^[0-9]+$' | head -1)
                 if [[ -n "$size" && $size -le 65535 ]]; then
                     pass "TS-4: Large output is truncated (<= 65535)"
                 else
