@@ -17,6 +17,8 @@
 #include <fcntl.h>
 #include <chrono>
 #include <cstdint>
+#include <cctype>
+#include <utility>
 
 // Global WASM host instance
 static WasmHost g_wasm_host;
@@ -253,12 +255,48 @@ static int32_t hc_host_poll_interrupt_impl(wasm_exec_env_t /*env*/) {
 // primitives execute shell commands.
 
 // hc_host_exec: run a shell command, return exit code.
+// The commands hc_host_exec* run execute on the host, but their paths come
+// from the guest: Quarks.folder is /home/user/.local/share/SuperCollider/
+// downloaded-quarks inside the sandbox whatever --quarks-dir says. Each
+// pre-opened directory the host maps for quarks (--quarks-dir,
+// --extra-class-path) is rewritten to its host path, so `git clone <url>
+// <Quarks.folder>/x` lands in --quarks-dir. Spaces are escaped, as the guest's
+// formatPathForCmdLine does.
+static std::vector<std::pair<std::string, std::string>> g_host_cmd_dirs; // guest, host
+
+static bool is_path_char(char c) {
+    return std::isalnum((unsigned char)c) || c == '.' || c == '_' || c == '-';
+}
+
+static std::string host_command(const char* cmd, int32_t len) {
+    std::string command(cmd, len);
+    for (const auto& [guest, host] : g_host_cmd_dirs) {
+        std::string escaped;
+        for (char c : host) {
+            if (c == ' ') escaped += '\\';
+            escaped += c;
+        }
+        size_t pos = 0;
+        while ((pos = command.find(guest, pos)) != std::string::npos) {
+            size_t end = pos + guest.size();
+            // Whole path components only: /a/b is not a prefix of /a/bc.
+            if (end < command.size() && is_path_char(command[end])) {
+                pos = end;
+                continue;
+            }
+            command.replace(pos, guest.size(), escaped);
+            pos += escaped.size();
+        }
+    }
+    return command;
+}
+
 static int32_t hc_host_exec_impl(wasm_exec_env_t /*env*/,
                                   const char* cmd, int32_t len) {
     if (!cmd || len <= 0) {
         return -1;
     }
-    std::string command(cmd, len);
+    std::string command = host_command(cmd, len);
     return ::system(command.c_str());
 }
 
@@ -273,8 +311,8 @@ static int32_t hc_host_exec_capture_impl(wasm_exec_env_t /*env*/,
         return -1;
     }
 
-    std::string command(cmd, len);
-    
+    std::string command = host_command(cmd, len);
+
     // Use popen to capture stdout
     FILE* pipe = popen(command.c_str(), "r");
     if (!pipe) {
@@ -425,17 +463,22 @@ static void invoke_viijj_impl(wasm_exec_env_t env, int32_t idx,
     };
     wasm_runtime_call_indirect(env, (uint32_t)idx, 6, argv);
 }
-// invoke_iiiijj (i32, i32, i32, i32, i64, i64) -> i32
+// invoke_iiiijj (i32, i32, i32, i32, i64, i64) -> i32, counting the table
+// index: the name is the return type then the callee's params, i i i j j.
+// The C parameters must match the registered "(iiiiII)i" one for one -- an
+// extra int32 here shifts every argument after it, and on x86-64 the last
+// one is then read from whatever is on the stack (the callee, keywordFixStack,
+// got a garbage key-argument count, which faulted only for some environment
+// sizes).
 static int32_t invoke_iiiijj_impl(wasm_exec_env_t env, int32_t idx,
-                                   int32_t a0, int32_t a1,
-                                   int32_t a2, int32_t a3,
-                                   int64_t a4, int64_t a5) {
-    uint32_t argv[8] = {
-        (uint32_t)a0, (uint32_t)a1, (uint32_t)a2, (uint32_t)a3,
-        (uint32_t)(uint64_t)a4, (uint32_t)((uint64_t)a4 >> 32),
-        (uint32_t)(uint64_t)a5, (uint32_t)((uint64_t)a5 >> 32)
+                                   int32_t a0, int32_t a1, int32_t a2,
+                                   int64_t a3, int64_t a4) {
+    uint32_t argv[7] = {
+        (uint32_t)a0, (uint32_t)a1, (uint32_t)a2,
+        (uint32_t)(uint64_t)a3, (uint32_t)((uint64_t)a3 >> 32),
+        (uint32_t)(uint64_t)a4, (uint32_t)((uint64_t)a4 >> 32)
     };
-    wasm_runtime_call_indirect(env, (uint32_t)idx, 8, argv);
+    wasm_runtime_call_indirect(env, (uint32_t)idx, 7, argv);
     return (int32_t)argv[0];
 }
 
@@ -481,7 +524,10 @@ static NativeSymbol hc_native_symbols[] = {
     { "hc_host_poll_interrupt",          (void*)hc_host_poll_interrupt_impl,          "()i"       },
     // Quarks CLI: Host execution functions
     { "hc_host_exec",                    (void*)hc_host_exec_impl,                    "(*i)i"     },
-    { "hc_host_exec_capture",            (void*)hc_host_exec_capture_impl,            "(*ii*i)i"   },
+    // (cmd, cmd_len, out, out_len, bytes_written): "*~" is a buffer and its
+    // length, translated and bounds-checked; a bare "i" would hand the C side
+    // a guest offset where it expects a pointer.
+    { "hc_host_exec_capture",            (void*)hc_host_exec_capture_impl,            "(*~*~*)i"   },
     // invoke_* trampolines — dispatch through WASM function table
     { "invoke_vii",    (void*)invoke_vii_impl,    "(iii)"     },
     { "invoke_vi",     (void*)invoke_vi_impl,     "(ii)"      },
@@ -1177,6 +1223,8 @@ int main(int argc, char** argv) {
             
             g_wasm_host.add_wasi_dir(opts.quarks_dir,
                                      "/home/user/.local/share/SuperCollider/downloaded-quarks");
+            g_host_cmd_dirs.emplace_back("/home/user/.local/share/SuperCollider/downloaded-quarks",
+                                         opts.quarks_dir);
             if (opts.verbosity > 0) {
                 fprintf(stderr,
                     "Using --quarks-dir %s (mounted at /home/user/.local/share/SuperCollider/downloaded-quarks)\n",
@@ -1209,6 +1257,7 @@ int main(int argc, char** argv) {
         std::string wasm_path = "/extra-class-lib/" + std::to_string(i) + "/" + basename;
         
         g_wasm_host.add_wasi_dir(host_path, wasm_path);
+        g_host_cmd_dirs.emplace_back(wasm_path, host_path);
         if (opts.verbosity > 0) {
             fprintf(stderr, "Using --extra-class-path %s (mounted at %s)\n",
                     host_path.c_str(), wasm_path.c_str());
@@ -1331,13 +1380,47 @@ int main(int argc, char** argv) {
 
     stage("classlib_preload");
 
+    // 4.7 Quarks CLI: put the extra class paths, and the quarks folder, on the
+    // class search path. This has to come before hc_wasm_eval_init, which is
+    // what compiles the class library (boot_sequence does not compile again).
+    std::vector<std::string> include_paths;
+    for (size_t i = 0; i < opts.extra_class_paths.size(); ++i) {
+        const std::string& host_path = opts.extra_class_paths[i];
+        struct stat st{};
+        if (stat(host_path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+            continue; // warned about at the pre-open
+        size_t last_slash = host_path.find_last_of("/\\");
+        std::string basename = (last_slash == std::string::npos) ? host_path : host_path.substr(last_slash + 1);
+        include_paths.push_back("/extra-class-lib/" + std::to_string(i) + "/" + basename);
+    }
+    if (!opts.quarks_dir.empty())
+        include_paths.push_back("/home/user/.local/share/SuperCollider/downloaded-quarks");
+    for (const std::string& wasm_path : include_paths) {
+        void* native_ptr = nullptr;
+        uint32_t wptr = g_wasm_host.wasm_malloc((uint32_t)wasm_path.size() + 1, &native_ptr);
+        if (!wptr || !native_ptr) {
+            fprintf(stderr, "Failed to allocate WASM buffer for class path %s\n", wasm_path.c_str());
+            continue;
+        }
+        memcpy(native_ptr, wasm_path.c_str(), wasm_path.size() + 1);
+        g_wasm_host.call("hc_wasm_eval_add_include_path", 0, nullptr, wptr);
+        g_wasm_host.wasm_free(wptr);
+        if (opts.verbosity > 0) {
+            fprintf(stderr, "[quarks] Registered class path: %s\n", wasm_path.c_str());
+        }
+    }
+    // A snapshot holds a compiled class library: restoring one would skip the
+    // compile these paths need, and saving one would hand their classes to
+    // every later run.
+    const bool use_snapshot = include_paths.empty();
+
     // 5. Init the language runtime (or restore from snapshot)
     bool snapshot_restored = false;
     {
         // Try to restore heap snapshot for warm start (Phase I2)
         wasm_module_inst_t inst = g_wasm_host.get_instance();
         uint8_t* heap_base = (uint8_t*)g_wasm_host.addr_to_native(0);
-        if (inst && heap_base) {
+        if (use_snapshot && inst && heap_base) {
             // Get heap capacity (use maximum value for now; WAMR provides via memory limits)
             const uint32_t max_heap_size = 256u * 1024u * 1024u;
             snapshot_restored = restore_snapshot(heap_base, max_heap_size,
@@ -1355,33 +1438,6 @@ int main(int argc, char** argv) {
                 fprintf(stderr, "hc_wasm_eval_init failed (rc=%d): %s\n",
                         rc, g_wasm_host.get_error().c_str());
                 return 1;
-            }
-
-            // Quarks CLI: Register extra class paths with the language config
-            // after hc_wasm_eval_init has set up the LanguageConfig.
-            for (size_t i = 0; i < opts.extra_class_paths.size(); ++i) {
-                const std::string& host_path = opts.extra_class_paths[i];
-                size_t last_slash = host_path.find_last_of("/\\");
-                std::string basename = (last_slash == std::string::npos) ? host_path : host_path.substr(last_slash + 1);
-                std::string wasm_path = "/extra-class-lib/" + std::to_string(i) + "/" + basename;
-                
-                // Allocate in WASM memory
-                uint32_t wptr = 0;
-                void* native_ptr = nullptr;
-                wptr = g_wasm_host.wasm_malloc((uint32_t)wasm_path.size() + 1, &native_ptr);
-                if (!wptr || !native_ptr) {
-                    fprintf(stderr, "Failed to allocate WASM buffer for extra class path\n");
-                    continue;
-                }
-                memcpy(native_ptr, wasm_path.c_str(), wasm_path.size() + 1);
-                
-                // Call hc_wasm_eval_add_include_path
-                g_wasm_host.call("hc_wasm_eval_add_include_path", 0, nullptr, wptr);
-                g_wasm_host.wasm_free(wptr);
-                
-                if (opts.verbosity > 0) {
-                    fprintf(stderr, "[quarks] Registered extra class path: %s\n", wasm_path.c_str());
-                }
             }
         }
     }
@@ -1412,7 +1468,7 @@ int main(int argc, char** argv) {
         }
 
         // Save snapshot for next run (Phase I2)
-        {
+        if (use_snapshot) {
             wasm_module_inst_t inst = g_wasm_host.get_instance();
             uint8_t* heap_base = (uint8_t*)g_wasm_host.addr_to_native(0);
             if (inst && heap_base) {
