@@ -15,11 +15,17 @@ Quarks {
 	*supported {
 		// On \wasm platform, check if host has quarks support via primitive.
 		// On other platforms, assume quarks are supported.
-		thisProcess.platform.name === \wasm if: {
-			_HcWasmQuarksAvailable.ir
-		}, {
+		^if(thisProcess.platform.name === \wasm) {
+			this.prHcWasmQuarksAvailable
+		} {
 			true
 		}
+	}
+
+	// A primitive call must be the first statement of its own method.
+	*prHcWasmQuarksAvailable {
+		_HcWasmQuarksAvailable
+		^false
 	}
 
 	*install { |name, refspec|

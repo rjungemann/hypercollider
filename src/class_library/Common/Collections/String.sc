@@ -456,21 +456,13 @@ String[char] : RawArray {
 		// Guard for WASM builds where Quarks may not be supported.
 		// On \wasm platform, only install if Quarks.supported is true.
 		// Otherwise, print a message and return this (no-op).
-		thisProcess.platform.name === \wasm if: {
-			Quarks.supported if: {
-				Quarks.isInstalled(this).ifNot({
-					Quarks.install(this);
-					"... the class library may have to be recompiled.".postln;
-				})
-			}, {
-				"Quarks are not available in this environment. Cannot include: %".format(this).postln;
-				^this
-			}
-		}, {
-			if(Quarks.isInstalled(this).not) {
-				Quarks.install(this);
-				"... the class library may have to be recompiled.".postln;
-			}
+		if(thisProcess.platform.name === \wasm and: { Quarks.supported.not }) {
+			"Quarks are not available in this environment. Cannot include: %".format(this).postln;
+			^this
+		};
+		if(Quarks.isInstalled(this).not) {
+			Quarks.install(this);
+			"... the class library may have to be recompiled.".postln;
 		}
 	}
 	exclude {
