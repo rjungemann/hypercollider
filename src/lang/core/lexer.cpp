@@ -2003,7 +2003,14 @@ static void passOne_HandleMissingDirectory(const fs::path& dir) {
     }
 }
 
-fs::path relativeToCompileDir(const fs::path& p) { return fs::relative(p, gCompileDir); }
+// Only builds an error message, so it must not fail itself: the throwing
+// fs::relative goes through weakly_canonical, which needs a current
+// directory WASI does not have, and under -fno-exceptions that aborts.
+fs::path relativeToCompileDir(const fs::path& p) {
+    std::error_code ec;
+    fs::path rel = fs::relative(p, gCompileDir, ec);
+    return ec || rel.empty() ? p : rel;
+}
 
 /** \brief Determines whether the directory should be skipped during compilation.
  *
