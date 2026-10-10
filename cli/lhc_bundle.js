@@ -45,6 +45,8 @@ const MODULES = [
   './lhc_parser.js',
   './lhc_macros.js',
   './lhc_codegen.js',
+  './lhc_sweet_reader.js',
+  './lhc_compile.js',
 ];
 
 const ENTRY = './lhc.js';

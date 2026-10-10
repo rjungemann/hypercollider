@@ -25,8 +25,8 @@ jobs:
         run: npm install
         working-directory: cli
 
-      - name: Run scscm (hcl) tests
-        run: node tests/test_hcl.js
+      - name: Run scscm (lhc) tests
+        run: node tests/test_lhc.js
         working-directory: cli
 
       - name: Run SC formatter tests
@@ -116,7 +116,7 @@ jobs:
       - name: Run CLI tests
         run: |
           node tests/test_hc.js
-          node tests/test_hcl.js
+          node tests/test_lhc.js
           node tests/test_sc_format.js
         working-directory: cli
 
