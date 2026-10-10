@@ -371,7 +371,9 @@ int main(int argc, char** argv) {
     // hc_wasm_osc_dispatch on the WASM side, copying the bytes into WASM
     // linear memory first so the engine can address them. Phase 7 closes
     // the loop opened by hclang_native's --scsynth-host forwarding.
-    OscServer osc_server(opts.udp_port, opts.tcp_port > 0);
+    // TCP when --tcp-port is given, else UDP (the server is one or the other).
+    OscServer osc_server(opts.tcp_port > 0 ? opts.tcp_port : opts.udp_port,
+                         opts.tcp_port > 0);
     if (opts.udp_port > 0 || opts.tcp_port > 0) {
         osc_server.set_packet_handler([&opts](const char* buf, size_t len) {
             if (len == 0) return;
