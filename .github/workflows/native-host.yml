@@ -51,7 +51,7 @@ jobs:
             build/wasi/lang/hclang/hclang.wasm
             build/wasi/server/hcsynth/hcsynth.wasm
             build/wasi/lang/hclang/hclang_classlib.pack
-          key: wasi-${{ runner.os }}-${{ hashFiles('src/lang/**', 'src/server/**', 'src/common/**', 'engine/**', 'src/lang/CMakeLists.txt', 'src/server/core/CMakeLists.txt', 'cmake_modules/EmscriptenWasiToolchain.cmake') }}
+          key: wasi-${{ runner.os }}-${{ hashFiles('src/lang/**', 'src/server/**', 'src/common/**', 'src/class_library/**', 'tools/pack_sc_classlib.js', 'engine/**', 'src/lang/CMakeLists.txt', 'src/server/core/CMakeLists.txt', 'cmake_modules/EmscriptenWasiToolchain.cmake') }}
 
       - name: Build WASI hclang.wasm + hcsynth.wasm
         if: steps.wasi-cache.outputs.cache-hit != 'true'
