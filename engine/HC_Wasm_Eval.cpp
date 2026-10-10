@@ -446,7 +446,16 @@ extern "C" const char* hc_wasm_eval_status() {
 // ============================================================================
 
 extern "C" void hc_wasm_eval_add_include_path(const char* path) {
-    if (!path || !gLanguageConfig) {
+    if (!path) {
+        return;
+    }
+    // Hosts call this before the first compile, when there is no config yet.
+    // Make it now, as compileLibrary would (it keeps an existing one), so the
+    // directory is not silently dropped.
+    if (!gLanguageConfig) {
+        SC_LanguageConfig::readLibraryConfig(false);
+    }
+    if (!gLanguageConfig) {
         return;
     }
     // Convert C string to std::filesystem::path

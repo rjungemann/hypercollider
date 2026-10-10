@@ -204,8 +204,11 @@ Platform {
 
 	// used to format paths correctly for command-line calls
 	// On Windows, encloses with quotes; on Unix systems, escapes spaces.
+	// hypercollider runs on this class itself (name \wasm), and its hosts run
+	// commands through a POSIX shell, so it escapes spaces as UnixPlatform does
+	// (Git.clone and Server need it).
 	formatPathForCmdLine { |path|
-		^this.subclassResponsibility
+		^path.escapeChar($ )
 	}
 
 	*systemInformation {

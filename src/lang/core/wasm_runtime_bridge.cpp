@@ -223,6 +223,7 @@ struct WasmPipeBuffer {
     std::string output;
     size_t pos;
     bool open;
+    int exitCode;
 };
 
 static WasmPipeBuffer g_pipe_buffers[8] = {};
@@ -233,6 +234,7 @@ static int allocPipeBuffer() {
             g_pipe_buffers[i].output.clear();
             g_pipe_buffers[i].pos = 0;
             g_pipe_buffers[i].open = true;
+            g_pipe_buffers[i].exitCode = 0;
             return i + 1; // 1-based
         }
     }
@@ -557,7 +559,11 @@ static int prString_System_Wasm(VMGlobals* g, int numArgsPushed) {
         return errFailed;
     }
 #else
-    return failUnixBridgeUnavailable();
+    // The WAMR host runs it with system(); like upstream, the status is
+    // system()'s, so 0 is success.
+    SetInt(a, hc_host_exec(command.c_str(), (int32_t)command.size()));
+    g_wasm_unix_errno = 0;
+    return errNone;
 #endif
 }
 
@@ -588,6 +594,43 @@ static int prString_Dirname_Wasm(VMGlobals* g, int numArgsPushed) {
     const auto dir = p.parent_path().generic_string();
     return setSlotString(g, a, dir.empty() ? std::string(".") : dir);
 }
+
+#ifdef SC_WASM_WASI
+// Runs a shell command on the WAMR host and returns its stdout, cut at 64 KB
+// less one byte. False when the host could not run it at all; otherwise the
+// exit status goes to *exitCode.
+static bool wasiCaptureStdout(const std::string& command, std::string& out, int32_t* exitCode) {
+    constexpr size_t kCaptureBufferSize = 65536;
+    static char capture_buffer[kCaptureBufferSize];
+    int32_t bytes_written = 0;
+    int32_t rc = hc_host_exec_capture(command.c_str(), (int32_t)command.size(), capture_buffer,
+                                      (int32_t)kCaptureBufferSize, &bytes_written);
+    if (rc < 0)
+        return false;
+    out.assign(capture_buffer, (size_t)bytes_written);
+    if (exitCode)
+        *exitCode = rc;
+    return true;
+}
+
+// argv as one POSIX shell command line, each argument single-quoted.
+static std::string shellCommandLine(const std::vector<std::string>& args) {
+    std::string line;
+    for (const std::string& arg : args) {
+        if (!line.empty())
+            line += ' ';
+        line += '\'';
+        for (char c : arg) {
+            if (c == '\'')
+                line += "'\\''";
+            else
+                line += c;
+        }
+        line += '\'';
+    }
+    return line;
+}
+#endif
 
 static int prString_POpen_Wasm(VMGlobals* g, int numArgsPushed) {
     (void)numArgsPushed;
@@ -714,7 +757,13 @@ static int prString_UnixCmdGetStdOut_Wasm(VMGlobals* g, int numArgsPushed) {
         return errFailed;
     }
 #else
-    return failUnixBridgeUnavailable();
+    std::string stdoutText;
+    if (!wasiCaptureStdout(command, stdoutText, nullptr)) {
+        g_wasm_unix_errno = EIO;
+        return errFailed;
+    }
+    g_wasm_unix_errno = 0;
+    return setSlotString(g, callerSlot, stdoutText);
 #endif
 }
 
@@ -773,29 +822,61 @@ static int prArray_UnixCmdGetStdOut_Wasm(VMGlobals* g, int numArgsPushed) {
         return errFailed;
     }
 #else
-    return failUnixBridgeUnavailable();
+    std::string stdoutText;
+    if (args.empty() || !wasiCaptureStdout(shellCommandLine(args), stdoutText, nullptr)) {
+        g_wasm_unix_errno = EIO;
+        return errFailed;
+    }
+    g_wasm_unix_errno = 0;
+    return setSlotString(g, callerSlot, stdoutText);
 #endif
 }
 
 // ============================================================================
 // PIPE PRIMITIVES (for Pipe.callSync compatibility)
 // ============================================================================
+//
+// There is no popen here. _PipeOpen runs the command to completion through
+// the host (the Node unix bridge, or hc_host_exec_capture under WASI), keeps
+// its stdout in a buffer, and stores the buffer's id in the Pipe's fileptr,
+// where _FileReadLine and _PipeClose find it. The calling convention is
+// upstream's (file_prim.cpp): the receiver is the first slot pushed, and the
+// result goes back in it.
 
+// The receiver's `fileptr` (UnixFILE's first instance variable).
+static PyrSlot* pipeFileptr(PyrSlot* receiver) {
+    return IsObj(receiver) ? slotRawObject(receiver)->slots : nullptr;
+}
+
+static WasmPipeBuffer* pipeBufferOf(PyrSlot* receiver) {
+    PyrSlot* fileptr = pipeFileptr(receiver);
+    int slot = 0;
+    if (!fileptr || slotIntVal(fileptr, &slot) != errNone)
+        return nullptr;
+    return getPipeBuffer(slot);
+}
+
+// Pipe:prOpen(commandLine, mode) -> a pid (the buffer id), or nil when the
+// command could not be run. The mode is not read: a capture can only be "r".
 static int prPipeOpen_Wasm(VMGlobals* g, int numArgsPushed) {
     (void)numArgsPushed;
-    PyrSlot* callerSlot = g->sp - 1;
-    PyrSlot* postOutputSlot = g->sp;
+    PyrSlot* a = g->sp - 2; // the Pipe
+    PyrSlot* b = g->sp - 1; // the command line
 
-    auto [error, command] = slotStrStdStrVal(callerSlot);
-    if (error != errNone) {
+    auto [error, command] = slotStrStdStrVal(b);
+    if (error != errNone)
         return error;
-    }
+    PyrSlot* fileptr = pipeFileptr(a);
+    if (!fileptr)
+        return errWrongType;
 
     int slot = allocPipeBuffer();
     if (!slot) {
         g_wasm_unix_errno = ENFILE; // Too many open pipes
-        return errFailed;
+        SetNil(a);
+        return errNone;
     }
+    WasmPipeBuffer* buffer = &g_pipe_buffers[slot - 1];
 
 #ifndef SC_WASM_WASI
     auto bridge = getUnixBridge();
@@ -806,123 +887,102 @@ static int prPipeOpen_Wasm(VMGlobals* g, int numArgsPushed) {
 
     try {
         emscripten::val result = bridge.call<emscripten::val>("runCommandCapture", command);
-        if (result.isUndefined() || result.isNull()) {
-            g_wasm_unix_errno = EIO;
-            freePipeBuffer(slot);
-            return errFailed;
-        }
-
-        bool ok = false;
-        if (!result["ok"].isUndefined() && !result["ok"].isNull()) {
-            ok = result["ok"].as<bool>();
-        }
-
-        int reportedErrno = 0;
-        if (!result["errno"].isUndefined() && !result["errno"].isNull()) {
-            reportedErrno = result["errno"].as<int>();
-        }
-
+        bool ok = !result.isUndefined() && !result.isNull() && !result["ok"].isUndefined()
+            && !result["ok"].isNull() && result["ok"].as<bool>();
         if (!ok) {
+            int reportedErrno = 0;
+            if (!result.isUndefined() && !result.isNull() && !result["errno"].isUndefined()
+                && !result["errno"].isNull())
+                reportedErrno = result["errno"].as<int>();
             g_wasm_unix_errno = (reportedErrno > 0) ? reportedErrno : mapUnixBridgeErrno(bridge);
             freePipeBuffer(slot);
-            return errFailed;
+            SetNil(a);
+            return errNone;
         }
-
-        std::string stdoutText;
-        if (!result["stdout"].isUndefined() && !result["stdout"].isNull()) {
-            stdoutText = result["stdout"].as<std::string>();
-        }
-
-        WasmPipeBuffer* buffer = &g_pipe_buffers[slot - 1];
-        buffer->output = stdoutText;
-        buffer->pos = 0;
-
-        g_wasm_unix_errno = 0;
-        SetInt(callerSlot, slot);
-        return errNone;
+        if (!result["stdout"].isUndefined() && !result["stdout"].isNull())
+            buffer->output = result["stdout"].as<std::string>();
+        if (!result["exitCode"].isUndefined() && !result["exitCode"].isNull())
+            buffer->exitCode = result["exitCode"].as<int>();
     } catch (...) {
         g_wasm_unix_errno = mapUnixBridgeErrno(bridge);
         freePipeBuffer(slot);
-        return errFailed;
+        SetNil(a);
+        return errNone;
     }
 #else
-    // WASI path: use hc_host_exec_capture
-    // Allocate a temporary buffer for host capture
-    constexpr size_t kCaptureBufferSize = 65536;
-    static char capture_buffer[kCaptureBufferSize];
-    int32_t bytes_written = 0;
-    
-    int32_t exit_code = hc_host_exec_capture(command.c_str(), (int32_t)command.size(),
-                                               capture_buffer, (int32_t)kCaptureBufferSize,
-                                               &bytes_written);
-    
-    if (exit_code != 0) {
+    int32_t exit_code = 0;
+    if (!wasiCaptureStdout(command, buffer->output, &exit_code)) {
         g_wasm_unix_errno = EIO;
         freePipeBuffer(slot);
-        return errFailed;
+        SetNil(a);
+        return errNone;
     }
-
-    WasmPipeBuffer* buffer = &g_pipe_buffers[slot - 1];
-    buffer->output.assign(capture_buffer, bytes_written);
-    buffer->pos = 0;
+    buffer->exitCode = exit_code;
+#endif
 
     g_wasm_unix_errno = 0;
-    SetInt(callerSlot, slot);
+    SetInt(fileptr, slot);
+    SetInt(a, slot);
     return errNone;
-#endif
 }
 
+// UnixFILE:prGetLine(string) -> the next line without its newline, or nil at
+// the end. At most string's capacity minus one, as fgets reads.
 static int prFile_GetLine_Wasm(VMGlobals* g, int numArgsPushed) {
     (void)numArgsPushed;
-    PyrSlot* callerSlot = g->sp - 1;
-    PyrSlot* resultSlot = g->sp;
+    PyrSlot* a = g->sp - 1; // the Pipe
+    PyrSlot* b = g->sp;     // the string to read into
 
-    int slot = 0;
-    if (slotIntVal(callerSlot, &slot) != errNone) {
+    if (!isKindOfSlot(b, class_string))
         return errWrongType;
-    }
-
-    WasmPipeBuffer* buffer = getPipeBuffer(slot);
+    WasmPipeBuffer* buffer = pipeBufferOf(a);
     if (!buffer) {
         g_wasm_unix_errno = EBADF; // Bad file descriptor
         return errFailed;
     }
 
-    if (buffer->pos >= buffer->output.size()) {
-        // EOF - return empty string
-        g_wasm_unix_errno = 0;
-        return setSlotString(g, resultSlot, "");
-    }
-
-    // Find the next newline
-    size_t start = buffer->pos;
-    size_t end = buffer->output.find('\n', start);
-    if (end == std::string::npos) {
-        end = buffer->output.size();
-    }
-
-    std::string line = buffer->output.substr(start, end - start);
-    // Strip trailing \r if present (for \r\n line endings)
-    if (!line.empty() && line.back() == '\r') {
-        line.pop_back();
-    }
-    buffer->pos = end + 1; // Move past the newline
-
     g_wasm_unix_errno = 0;
-    return setSlotString(g, resultSlot, line);
+    if (buffer->pos >= buffer->output.size()) {
+        SetNil(a);
+        return errNone;
+    }
+
+    PyrString* str = slotRawString(b);
+    size_t room = MAXINDEXSIZE(str) > 1 ? (size_t)MAXINDEXSIZE(str) - 1 : 0;
+    size_t start = buffer->pos;
+    size_t nl = buffer->output.find('\n', start);
+    size_t end = (nl == std::string::npos) ? buffer->output.size() : nl + 1;
+    if (end - start > room)
+        end = start + room;
+    buffer->pos = end;
+
+    size_t len = end - start;
+    if (len > 0 && buffer->output[end - 1] == '\n')
+        len--;
+    if (len > 0 && buffer->output[start + len - 1] == '\r') // a \r\n line ending
+        len--;
+    memcpy(str->s, buffer->output.data() + start, len);
+    str->size = (int)len;
+    slotCopy(a, b);
+    return errNone;
 }
 
+// Pipe:prClose(pid) -> the command's exit status.
 static int prPipeClose_Wasm(VMGlobals* g, int numArgsPushed) {
     (void)numArgsPushed;
-    PyrSlot* a = g->sp;
+    PyrSlot* a = g->sp - 1; // the Pipe
 
+    PyrSlot* fileptr = pipeFileptr(a);
     int slot = 0;
-    if (slotIntVal(a, &slot) != errNone) {
-        return errWrongType;
-    }
+    if (!fileptr || slotIntVal(fileptr, &slot) != errNone)
+        return errFailed; // not open
+    WasmPipeBuffer* buffer = getPipeBuffer(slot);
+    int exitCode = buffer ? buffer->exitCode : -1;
 
     freePipeBuffer(slot);
+    SetNil(fileptr);
     g_wasm_unix_errno = 0;
+    SetInt(a, exitCode);
     return errNone;
 }
 
@@ -1074,8 +1134,8 @@ void initFilePrimitives() {
 // Dispatches to hc_wasm_quarks_available() which checks platform-specific support.
 static int prHcWasmQuarksAvailable(VMGlobals* g, int numArgsPushed) {
     (void)g; (void)numArgsPushed;
-    int available = hc_wasm_quarks_available();
-    SetInt(g->sp, available);
+    // A Boolean: Quarks.supported is tested with `if`, and prints as true/false.
+    SetBool(g->sp, hc_wasm_quarks_available() != 0);
     return errNone;
 }
 
@@ -1099,9 +1159,9 @@ void initUnixPrimitives()     {
     definePrimitive(base, index++, "_PidRunning", prPidRunning_Wasm, 1, 0);
     definePrimitive(base, index++, "_GetPid", prGetPid_Wasm, 1, 0);
     // Pipe primitives for Pipe.callSync compatibility
-    definePrimitive(base, index++, "_PipeOpen", prPipeOpen_Wasm, 2, 0);
+    definePrimitive(base, index++, "_PipeOpen", prPipeOpen_Wasm, 3, 0);
     definePrimitive(base, index++, "_FileReadLine", prFile_GetLine_Wasm, 2, 0);
-    definePrimitive(base, index++, "_PipeClose", prPipeClose_Wasm, 1, 0);
+    definePrimitive(base, index++, "_PipeClose", prPipeClose_Wasm, 2, 0);
 }
 #if !defined(SC_WASM_USE_OSCDATA)
 void init_OSC_primitives()    {
