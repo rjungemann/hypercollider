@@ -214,6 +214,11 @@ if(MSVC)
     target_compile_options(vmlib PRIVATE
         $<$<COMPILE_LANGUAGE:C>:/experimental:c11atomics>)
 endif()
+if(WIN32)
+    # WAMR's Windows platform calls NtQueryTimerResolution (win_clock.c, in
+    # ntdll) and Winsock (win_socket.c); WAMR's own Windows build links both.
+    target_link_libraries(vmlib PUBLIC ntdll ws2_32)
+endif()
 
 # ---------------------------------------------------------------------------
 # CPM dependencies (fetched once, paths propagated via variables)
