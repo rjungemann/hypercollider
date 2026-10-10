@@ -238,12 +238,12 @@ async function runReplInProcessMode(opts) {
     serviceBrowser = browseLan({
       onFound(name, host, port, protocol) {
         if (protocol === 'udp' && name === opts.zeroconfName) {
-          const code = `NetAddr._zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
+          const code = `NetAddr.zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
           replEvalCode(code);
         }
       },
       onLost(name) {
-        const code = `NetAddr._zeroconfLost(${JSON.stringify(name)});`;
+        const code = `NetAddr.zeroconfLost(${JSON.stringify(name)});`;
         replEvalCode(code);
       },
       type: 'osc',
@@ -511,12 +511,12 @@ async function runReplNetworkMode(opts) {
     serviceBrowser = browseLan({
       onFound(name, host, port, protocol) {
         if (protocol === 'udp' && name === opts.zeroconfName) {
-          const code = `NetAddr._zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
+          const code = `NetAddr.zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
           replEvalCode(code);
         }
       },
       onLost(name) {
-        const code = `NetAddr._zeroconfLost(${JSON.stringify(name)});`;
+        const code = `NetAddr.zeroconfLost(${JSON.stringify(name)});`;
         replEvalCode(code);
       },
       type: 'osc',

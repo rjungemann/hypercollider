@@ -557,7 +557,7 @@ async function runSclangCli(opts) {
         // Inject SC code to notify sclang about discovered service
         // Only handle UDP for now (SuperCollider traditionally uses UDP)
         if (protocol === 'udp' && name === opts.zeroconfName) {
-          const code = `NetAddr._zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
+          const code = `NetAddr.zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
           const p = allocCString(sclang, code);
           try {
             sclang._hc_wasm_eval_execute(p, code.length);
@@ -567,7 +567,7 @@ async function runSclangCli(opts) {
         }
       },
       onLost(name) {
-        const code = `NetAddr._zeroconfLost(${JSON.stringify(name)});`;
+        const code = `NetAddr.zeroconfLost(${JSON.stringify(name)});`;
         const p = allocCString(sclang, code);
         try {
           sclang._hc_wasm_eval_execute(p, code.length);
