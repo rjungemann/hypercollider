@@ -89,7 +89,16 @@ jobs:
             wasm-${{ runner.os }}-
 
       - name: Configure WASM build
-        run: cmake --preset wasm_release
+        # The cache above restores build/wasm from an earlier run, and the
+        # compiler it recorded (CMakeFiles/<version>/CMakeCCompiler.cmake) is
+        # that run's emsdk, which setup-emsdk installs under a fresh
+        # _temp/<uuid>/ each time. Configuring over it fails
+        # ("CMAKE_C_COMPILER ... is not a full path to an existing compiler
+        # tool") whenever the cache key matches. Drop the stale configuration
+        # and keep the objects: CMake reconfigures against this run's emsdk.
+        run: |
+          rm -rf build/wasm/CMakeCache.txt build/wasm/CMakeFiles
+          cmake --preset wasm_release
 
       - name: Build hcsynth and hclang
         # Single cmake invocation — two concurrent `cmake --build` processes
