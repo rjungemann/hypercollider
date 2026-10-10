@@ -1,24 +1,59 @@
 #include "wasm_host.h"
+#include "hc_platform.h"
 #include <CLI/CLI.hpp>
-#include <linenoise.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <dirent.h>
-#include <errno.h>
-#include <signal.h>
-#include <fcntl.h>
+#include <cerrno>
+#include <csignal>
 #include <chrono>
 #include <cstdint>
 #include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <random>
 #include <utility>
+
+namespace fs = std::filesystem;
+
+#ifndef _WIN32
+#include <linenoise.h>
+#else
+// linenoise needs a POSIX terminal (termios). On Windows the REPL reads
+// plain lines: no line editing, and history is not kept.
+static char* linenoise(const char* prompt) {
+    fputs(prompt, stdout);
+    fflush(stdout);
+    std::string line;
+    if (!std::getline(std::cin, line))
+        return nullptr;
+    char* out = static_cast<char*>(malloc(line.size() + 1));
+    if (out)
+        memcpy(out, line.c_str(), line.size() + 1);
+    return out;
+}
+static void linenoiseFree(void* p) { free(p); }
+static int linenoiseSetMultiLine(int) { return 0; }
+static int linenoiseHistoryLoad(const char*) { return 0; }
+static int linenoiseHistoryAdd(const char*) { return 0; }
+static int linenoiseHistorySave(const char*) { return 0; }
+#endif
+
+// The embedded blobs are defined in generated C files (cmake/EmbedWasmRun.cmake),
+// so they need C linkage: MSVC mangles C++ variable names, GCC and Clang do not.
+extern "C" {
+#ifdef HC_EMBEDDED_WASM
+extern const uint8_t hclang_wasm_blob[];
+extern const size_t  hclang_wasm_blob_len;
+#endif
+#ifdef HC_EMBEDDED_CLASSLIB_PACK
+extern const uint8_t hclang_classlib_pack_blob[];
+extern const size_t  hclang_classlib_pack_blob_len;
+#endif
+}
 
 // Global WASM host instance
 static WasmHost g_wasm_host;
@@ -45,27 +80,23 @@ static void simple_sha256(const uint8_t* data, size_t len, uint8_t out[64]) {
 }
 
 static const char* get_snapshot_path() {
-    static char path_buf[512] = {};
-    if (path_buf[0] == '\0') {
-        const char* home = getenv("HOME");
-        if (!home) home = "/tmp";
-        snprintf(path_buf, sizeof(path_buf), "%s/.cache/hclang/heap.bin", home);
+    static std::string path;
+    if (path.empty()) {
+        std::string home = hc_home_dir();
+        std::error_code ec;
+        fs::path base = home.empty() ? fs::temp_directory_path(ec) : fs::path(home);
+        path = (base / ".cache" / "hclang" / "heap.bin").string();
     }
-    return path_buf;
+    return path.c_str();
 }
 
 static bool save_snapshot(uint8_t* heap_base, uint32_t heap_size,
                          const uint8_t* wasm_bytes, uint32_t wasm_size) {
     const char* snap_path = get_snapshot_path();
 
-    // Create directory if needed
-    char dir_buf[512] = {};
-    snprintf(dir_buf, sizeof(dir_buf), "%s", snap_path);
-    char* last_slash = strrchr(dir_buf, '/');
-    if (last_slash) {
-        *last_slash = '\0';
-        mkdir(dir_buf, 0755);
-    }
+    // Create the directory, parents included, if needed.
+    std::error_code ec;
+    fs::create_directories(fs::path(snap_path).parent_path(), ec);
 
     FILE* f = fopen(snap_path, "wb");
     if (!f) return false;
@@ -210,19 +241,20 @@ static void emscripten_fs_load_embedded_files_impl(wasm_exec_env_t env,
 // Without a configured socket, sends are silently dropped (script can run
 // without a synth attached).
 // WASM type: (i32 msg_ptr, i32 size) -> i32
-static int        g_osc_socket   = -1;
+static hc_socket_t g_osc_socket  = HC_INVALID_SOCKET;
 static sockaddr_in g_osc_addr    = {};
 static int32_t sc_wasm_forward_osc_js_impl(wasm_exec_env_t env,
                                             int32_t msg_ptr,
                                             int32_t size) {
-    if (g_osc_socket < 0 || size <= 0) return 0;
+    if (g_osc_socket == HC_INVALID_SOCKET || size <= 0) return 0;
     wasm_module_inst_t inst = wasm_runtime_get_module_inst(env);
     if (!wasm_runtime_validate_app_addr(inst, (uint32_t)msg_ptr, (uint32_t)size))
         return -1;
     const void* native = wasm_runtime_addr_app_to_native(inst, (uint32_t)msg_ptr);
     if (!native) return -1;
-    ssize_t sent = sendto(g_osc_socket, native, (size_t)size, 0,
-                          (sockaddr*)&g_osc_addr, sizeof(g_osc_addr));
+    // Winsock takes a char* and an int length; POSIX accepts both.
+    auto sent = sendto(g_osc_socket, static_cast<const char*>(native), size, 0,
+                       (sockaddr*)&g_osc_addr, (int)sizeof(g_osc_addr));
     return (sent == size) ? 0 : -2;
 }
 
@@ -239,6 +271,7 @@ static void emscripten_throw_longjmp_impl(wasm_exec_env_t /*env*/) {}
 static volatile sig_atomic_t g_interrupt_pending = 0;
 
 static void sigint_handler(int /*sig*/) {
+    hc_rearm_sigint_handler(sigint_handler);
     g_interrupt_pending = 1;
     // Don't re-raise / don't exit. The interpreter will pick this up on
     // its next interrupt-poll dispatch.
@@ -314,7 +347,7 @@ static int32_t hc_host_exec_capture_impl(wasm_exec_env_t /*env*/,
     std::string command = host_command(cmd, len);
 
     // Use popen to capture stdout
-    FILE* pipe = popen(command.c_str(), "r");
+    FILE* pipe = hc_popen(command.c_str(), "r");
     if (!pipe) {
         return -1;
     }
@@ -332,11 +365,7 @@ static int32_t hc_host_exec_capture_impl(wasm_exec_env_t /*env*/,
         bytes_written += chunk_len;
     }
 
-    int exit_code = pclose(pipe);
-    if (exit_code == -1) {
-        bytes_written = 0;
-        return -1;
-    }
+    int exit_code = hc_pclose_exit_code(pipe);
 
     // Null-terminate the output
     if (bytes_written < out_len) {
@@ -347,23 +376,13 @@ static int32_t hc_host_exec_capture_impl(wasm_exec_env_t /*env*/,
     }
 
     *bytes_written_ptr = bytes_written;
-    
-    // Return 0 for success (matching system() behavior for success)
-    if (WIFEXITED(exit_code)) {
-        return WEXITSTATUS(exit_code);
-    }
-    return -1;
+    return exit_code; // -1 when it did not exit normally
 }
 
 static void install_sigint_handler() {
-    struct sigaction sa{};
-    sa.sa_handler = sigint_handler;
-    sigemptyset(&sa.sa_mask);
-    // No SA_RESTART: we WANT linenoise's read() syscall to be interrupted
-    // so a Ctrl-C at the prompt returns immediately. The interrupt flag
-    // is still set, but linenoise just bails out and the REPL re-prompts.
-    sa.sa_flags = 0;
-    sigaction(SIGINT, &sa, nullptr);
+    // A Ctrl-C at the prompt interrupts linenoise's read(); the interrupt
+    // flag is still set, but linenoise just bails out and the REPL re-prompts.
+    hc_install_sigint_handler(sigint_handler);
 }
 
 // ---------------------------------------------------------------------------
@@ -579,21 +598,28 @@ static constexpr uint8_t HC_PACK_MAGIC[8] = {
 };
 
 static bool make_dirs(const std::string& path) {
-    // Create the leading directory of `path` (everything up to the last '/').
-    char tmp[4096];
-    snprintf(tmp, sizeof(tmp), "%s", path.c_str());
-    char* slash = strrchr(tmp, '/');
-    if (!slash || slash == tmp) return true;
-    *slash = '\0';
-    for (char* p = tmp + 1; *p; ++p) {
-        if (*p == '/') {
-            *p = '\0';
-            ::mkdir(tmp, 0755);
-            *p = '/';
-        }
+    // Create the leading directory of `path`, parents included.
+    fs::path parent = fs::path(path).parent_path();
+    if (parent.empty()) return true;
+    std::error_code ec;
+    fs::create_directories(parent, ec);
+    return !ec;
+}
+
+// A new, empty directory under the system temp directory, named
+// <prefix><random>; empty when none could be made.
+static std::string make_temp_dir(const char* prefix) {
+    std::error_code ec;
+    fs::path base = fs::temp_directory_path(ec);
+    if (ec) return "";
+    std::random_device rd;
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        char suffix[17];
+        snprintf(suffix, sizeof(suffix), "%08x%08x", rd(), rd());
+        fs::path dir = base / (std::string(prefix) + suffix);
+        if (fs::create_directory(dir, ec) && !ec) return dir.string();
     }
-    ::mkdir(tmp, 0755);
-    return true;
+    return "";
 }
 
 // Extract a pack to <out_dir>, treating <memfs_prefix> as a virtual root —
@@ -670,42 +696,39 @@ static std::string compile_scscm_to_sclang(const std::string& scscm_code,
     // This is the contingency approach (4a) mentioned in the plan.
     // The preferred approach (4b) would be to bundle the compiler as WASM.
     
-    // Check if we have the lhc compiler available
-    std::string lhc_path = "./cli/lhc.js";
-    if (access(lhc_path.c_str(), X_OK) != 0) {
-        // Try with node
-        lhc_path = "node ./cli/lhc.js";
-    }
-    
-    // Create a temp file for the scscm code
-    char temp_template[] = "/tmp/hclang_scscm_XXXXXX.scscm";
-    int fd = mkstemp(temp_template);
-    if (fd < 0) {
+    // The scscm code goes through a temp file in a directory of its own.
+    // (This used to be mkstemp("/tmp/hclang_scscm_XXXXXX.scscm"), which
+    // fails: mkstemp needs the template to end in XXXXXX.)
+    std::string temp_dir = make_temp_dir("hclang_scscm_");
+    if (temp_dir.empty()) {
         fprintf(stderr, "Failed to create temp file for scscm compilation\n");
         return "";
     }
-    
-    // Write the scscm code to the temp file
-    ssize_t written = write(fd, scscm_code.c_str(), scscm_code.size());
-    close(fd);
-    
-    if (written != (ssize_t)scscm_code.size()) {
-        fprintf(stderr, "Failed to write scscm code to temp file\n");
-        unlink(temp_template);
-        return "";
+    const std::string temp_file = (fs::path(temp_dir) / "input.scscm").string();
+    auto remove_temp = [&temp_dir]() {
+        std::error_code ec;
+        fs::remove_all(temp_dir, ec);
+    };
+    {
+        std::ofstream out(temp_file, std::ios::binary);
+        out.write(scscm_code.data(), (std::streamsize)scscm_code.size());
+        if (!out) {
+            fprintf(stderr, "Failed to write scscm code to temp file\n");
+            remove_temp();
+            return "";
+        }
     }
-    
-    // Build the command
-    std::string cmd = "node ";
-    cmd += lhc_path;
-    cmd += " ";
-    cmd += temp_template;
-    
+
+    // Build the command: lhc.js, relative to the working directory.
+    std::string cmd = "node ./cli/lhc.js \"";
+    cmd += temp_file;
+    cmd += "\"";
+
     // Open a pipe to capture the output
-    FILE* pipe = popen(cmd.c_str(), "r");
+    FILE* pipe = hc_popen(cmd.c_str(), "r");
     if (!pipe) {
         fprintf(stderr, "Failed to run scscm compiler: %s\n", strerror(errno));
-        unlink(temp_template);
+        remove_temp();
         return "";
     }
     
@@ -716,10 +739,10 @@ static std::string compile_scscm_to_sclang(const std::string& scscm_code,
         sclang_code += buffer;
     }
     
-    int status = pclose(pipe);
-    
+    int status = hc_pclose_exit_code(pipe);
+
     // Clean up temp file
-    unlink(temp_template);
+    remove_temp();
     
     if (status != 0) {
         fprintf(stderr, "scscm compilation failed with exit code %d\n", status);
@@ -793,15 +816,10 @@ static bool repl_input_is_complete(const std::string& buf) {
 }
 
 static std::string history_file_path() {
-    const char* home = getenv("HOME");
-    std::string path;
-    if (home && *home) {
-        path = home;
-        path += "/.hclang_history";
-    } else {
-        path = ".hclang_history";
-    }
-    return path;
+    std::string home = hc_home_dir();
+    if (home.empty())
+        return ".hclang_history";
+    return (fs::path(home) / ".hclang_history").string();
 }
 
 static void repl_dispatch(const std::string& code) {
@@ -968,13 +986,24 @@ int main(int argc, char** argv) {
     // posts wouldn't appear until the buffer fills (~4 KB) or the process
     // exits. Line buffering preserves the terminal-like behaviour the user
     // expects when they run e.g. `./hclang_native --script foo.scd | tee log`.
+#ifdef _WIN32
+    // The MSVC CRT has no line buffering (_IOLBF is full buffering there) and
+    // rejects a size of 0 for it, so it is unbuffered.
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+#else
     setvbuf(stdout, nullptr, _IOLBF, 0);
     setvbuf(stderr, nullptr, _IOLBF, 0);
+#endif
 
     // 0.5 Open OSC forwarding socket if scsynth target is configured.
     if (!opts.scsynth_host.empty() && opts.scsynth_port > 0) {
+        if (!hc_sockets_init()) {
+            fprintf(stderr, "Failed to initialise sockets\n");
+            return 1;
+        }
         g_osc_socket = socket(AF_INET, SOCK_DGRAM, 0);
-        if (g_osc_socket < 0) {
+        if (g_osc_socket == HC_INVALID_SOCKET) {
             fprintf(stderr, "Failed to open OSC socket: %s\n", strerror(errno));
             return 1;
         }
@@ -1039,8 +1068,6 @@ int main(int argc, char** argv) {
         || (getenv("HC_WASM_FROM_DISK") != nullptr);
     bool loaded = false;
 #ifdef HC_EMBEDDED_WASM
-    extern const uint8_t hclang_wasm_blob[];
-    extern const size_t  hclang_wasm_blob_len;
     if (!prefer_disk) {
         if (!g_wasm_host.load(hclang_wasm_blob,
                               static_cast<uint32_t>(hclang_wasm_blob_len),
@@ -1100,16 +1127,18 @@ int main(int argc, char** argv) {
         // Validate the user-supplied path before WAMR boot. Bad paths
         // surface much later as opaque "class extension for nonexistent
         // class" errors that look like compiler bugs.
-        struct stat st{};
-        if (stat(opts.classlib_dir.c_str(), &st) != 0) {
+        std::error_code ec;
+        fs::file_status st = fs::status(opts.classlib_dir, ec);
+        if (ec || !fs::exists(st)) {
             fprintf(stderr,
                 "ERROR: --classlib-dir '%s' does not exist (%s).\n"
                 "  Pass a path to a SuperCollider SCClassLibrary directory,\n"
                 "  or omit --classlib-dir to use the embedded pack.\n",
-                opts.classlib_dir.c_str(), strerror(errno));
+                opts.classlib_dir.c_str(),
+                ec ? ec.message().c_str() : "No such file or directory");
             return 1;
         }
-        if (!S_ISDIR(st.st_mode)) {
+        if (!fs::is_directory(st)) {
             fprintf(stderr,
                 "ERROR: --classlib-dir '%s' is not a directory.\n",
                 opts.classlib_dir.c_str());
@@ -1119,23 +1148,24 @@ int main(int argc, char** argv) {
         // single-level scan; cheap enough). An empty dir would let WAMR
         // boot but produce zero compiled classes.
         bool found_sc = false;
-        DIR* d = opendir(opts.classlib_dir.c_str());
-        if (d) {
-            struct dirent* e;
-            while ((e = readdir(d)) != nullptr) {
-                const char* dot = strrchr(e->d_name, '.');
-                if (dot && (strcmp(dot, ".sc") == 0 || strcmp(dot, ".sc.in") == 0)) {
-                    found_sc = true;
-                    break;
-                }
-                // Allow nested layout (Common/, Platform/, etc.); don't recurse,
-                // just trust that any subdir is enough signal.
-                if (e->d_type == DT_DIR && e->d_name[0] != '.') {
-                    found_sc = true;
-                    break;
-                }
+        for (fs::directory_iterator it(opts.classlib_dir, ec), end; !ec && it != end;
+             it.increment(ec)) {
+            const std::string name = it->path().filename().string();
+            auto ends_with = [&name](const char* suffix) {
+                const size_t n = strlen(suffix);
+                return name.size() >= n && name.compare(name.size() - n, n, suffix) == 0;
+            };
+            if (ends_with(".sc") || ends_with(".sc.in")) {
+                found_sc = true;
+                break;
             }
-            closedir(d);
+            // Allow nested layout (Common/, Platform/, etc.); don't recurse,
+            // just trust that any subdir is enough signal.
+            std::error_code dir_ec;
+            if (!name.empty() && name[0] != '.' && it->is_directory(dir_ec)) {
+                found_sc = true;
+                break;
+            }
         }
         if (!found_sc) {
             fprintf(stderr,
@@ -1157,16 +1187,11 @@ int main(int argc, char** argv) {
         }
     } else {
 #ifdef HC_EMBEDDED_CLASSLIB_PACK
-        extern const uint8_t hclang_classlib_pack_blob[];
-        extern const size_t  hclang_classlib_pack_blob_len;
-        char tmpl[] = "/tmp/hclang_classlib_XXXXXX";
-        char* td = mkdtemp(tmpl);
-        if (!td) {
-            fprintf(stderr, "Failed to create temp dir for embedded classlib: %s\n",
-                    strerror(errno));
+        classlib_temp_dir = make_temp_dir("hclang_classlib_");
+        if (classlib_temp_dir.empty()) {
+            fprintf(stderr, "Failed to create temp dir for embedded classlib\n");
             return 1;
         }
-        classlib_temp_dir = td;
         int n = extract_pack(hclang_classlib_pack_blob,
                              hclang_classlib_pack_blob_len,
                              classlib_temp_dir.c_str(),
@@ -1197,30 +1222,18 @@ int main(int argc, char** argv) {
     // Platform.userAppSupportDir returns /home/user/.local/share/SuperCollider in WASM.
     if (!opts.quarks_dir.empty()) {
         // Validate the user-supplied path
-        struct stat st{};
-        if (stat(opts.quarks_dir.c_str(), &st) != 0) {
+        std::error_code ec;
+        fs::file_status st = fs::status(opts.quarks_dir, ec);
+        if (ec || !fs::exists(st)) {
             fprintf(stderr,
                 "WARNING: --quarks-dir '%s' does not exist (%s).\n",
-                opts.quarks_dir.c_str(), strerror(errno));
-        } else if (!S_ISDIR(st.st_mode)) {
+                opts.quarks_dir.c_str(),
+                ec ? ec.message().c_str() : "No such file or directory");
+        } else if (!fs::is_directory(st)) {
             fprintf(stderr,
                 "WARNING: --quarks-dir '%s' is not a directory.\n",
                 opts.quarks_dir.c_str());
         } else {
-            // Check if it contains quarks (directories with .sc files or .quark files)
-            DIR* d = opendir(opts.quarks_dir.c_str());
-            bool has_quarks = false;
-            if (d) {
-                struct dirent* e;
-                while ((e = readdir(d)) != nullptr) {
-                    if (e->d_type == DT_DIR && e->d_name[0] != '.') {
-                        has_quarks = true;
-                        break;
-                    }
-                }
-                closedir(d);
-            }
-            
             g_wasm_host.add_wasi_dir(opts.quarks_dir,
                                      "/home/user/.local/share/SuperCollider/downloaded-quarks");
             g_host_cmd_dirs.emplace_back("/home/user/.local/share/SuperCollider/downloaded-quarks",
@@ -1237,14 +1250,16 @@ int main(int argc, char** argv) {
     // Each extra path is pre-opened at /extra-class-lib/<index>/<basename>.
     for (size_t i = 0; i < opts.extra_class_paths.size(); ++i) {
         const std::string& host_path = opts.extra_class_paths[i];
-        struct stat st{};
-        if (stat(host_path.c_str(), &st) != 0) {
+        std::error_code ec;
+        fs::file_status st = fs::status(host_path, ec);
+        if (ec || !fs::exists(st)) {
             fprintf(stderr,
                 "WARNING: --extra-class-path '%s' does not exist (%s). Skipping.\n",
-                host_path.c_str(), strerror(errno));
+                host_path.c_str(),
+                ec ? ec.message().c_str() : "No such file or directory");
             continue;
         }
-        if (!S_ISDIR(st.st_mode)) {
+        if (!fs::is_directory(st)) {
             fprintf(stderr,
                 "WARNING: --extra-class-path '%s' is not a directory. Skipping.\n",
                 host_path.c_str());
@@ -1341,8 +1356,6 @@ int main(int argc, char** argv) {
         }
 #ifdef HC_EMBEDDED_CLASSLIB_PACK
         else {
-            extern const uint8_t hclang_classlib_pack_blob[];
-            extern const size_t  hclang_classlib_pack_blob_len;
             pack_bytes = hclang_classlib_pack_blob;
             pack_size  = hclang_classlib_pack_blob_len;
             src = "embedded blob";
@@ -1386,8 +1399,8 @@ int main(int argc, char** argv) {
     std::vector<std::string> include_paths;
     for (size_t i = 0; i < opts.extra_class_paths.size(); ++i) {
         const std::string& host_path = opts.extra_class_paths[i];
-        struct stat st{};
-        if (stat(host_path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+        std::error_code ec;
+        if (!fs::is_directory(host_path, ec))
             continue; // warned about at the pre-open
         size_t last_slash = host_path.find_last_of("/\\");
         std::string basename = (last_slash == std::string::npos) ? host_path : host_path.substr(last_slash + 1);
@@ -1585,12 +1598,8 @@ int main(int argc, char** argv) {
     // remove it (best-effort: ignore failures so a leftover doesn't mask a
     // genuine exit code from the script).
     if (!classlib_temp_dir.empty()) {
-        // shell out to `rm -rf` rather than re-implement recursive remove.
-        // The path was just created by mkdtemp under /tmp so it's safe.
-        std::string cmd = "rm -rf '";
-        cmd.append(classlib_temp_dir);
-        cmd.append("'");
-        (void)system(cmd.c_str());
+        std::error_code ec;
+        fs::remove_all(classlib_temp_dir, ec);
     }
 
     return 0;

@@ -9,8 +9,17 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <unistd.h>
+#include <thread>
 #include <vector>
+
+// The embedded blob is defined in a generated C file (cmake/EmbedWasmRun.cmake),
+// so it needs C linkage: MSVC mangles C++ variable names, GCC and Clang do not.
+#ifdef HC_EMBEDDED_WASM
+extern "C" {
+extern const uint8_t hcsynth_wasm_blob[];
+extern const size_t  hcsynth_wasm_blob_len;
+}
+#endif
 
 // Global WASM host instance
 static WasmHost g_wasm_host;
@@ -282,8 +291,6 @@ int main(int argc, char** argv) {
         || (getenv("HC_WASM_FROM_DISK") != nullptr);
     bool loaded = false;
 #ifdef HC_EMBEDDED_WASM
-    extern const uint8_t hcsynth_wasm_blob[];
-    extern const size_t  hcsynth_wasm_blob_len;
     if (!prefer_disk) {
         if (!g_wasm_host.load(hcsynth_wasm_blob,
                               static_cast<uint32_t>(hcsynth_wasm_blob_len),
@@ -468,7 +475,7 @@ int main(int argc, char** argv) {
             while (remaining > 0) {
                 int got = osc_server.process();
                 if (got > 0) break;
-                usleep(poll_step * 1000);
+                std::this_thread::sleep_for(std::chrono::milliseconds(poll_step));
                 remaining -= poll_step;
             }
             if (remaining <= 0 && opts.verbosity > 0) {

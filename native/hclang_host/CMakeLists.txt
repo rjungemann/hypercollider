@@ -4,11 +4,16 @@
 add_executable(hclang_native
     main.cpp
     wasm_host.cpp
-    ${LINENOISE_SOURCE_DIR}/linenoise.c
 )
+# linenoise needs a POSIX terminal; on Windows the REPL reads plain lines
+# (see main.cpp).
+if(NOT WIN32)
+    target_sources(hclang_native PRIVATE ${LINENOISE_SOURCE_DIR}/linenoise.c)
+endif()
 
 target_include_directories(hclang_native PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common
     ${LINENOISE_SOURCE_DIR}
 )
 
@@ -39,6 +44,8 @@ if(APPLE)
     # No special frameworks needed for hclang (no audio)
 elseif(UNIX)
     target_link_libraries(hclang_native PRIVATE -lpthread -ldl)
+elseif(WIN32)
+    target_link_libraries(hclang_native PRIVATE ws2_32) # OSC forwarding
 endif()
 
 install(TARGETS hclang_native DESTINATION bin)

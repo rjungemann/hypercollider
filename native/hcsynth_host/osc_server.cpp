@@ -1,13 +1,14 @@
 #include "osc_server.h"
+#include "hc_platform.h"
 #include <cstring>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <fcntl.h>
+
+namespace {
+hc_socket_t as_socket(std::uintptr_t s) { return static_cast<hc_socket_t>(s); }
+const std::uintptr_t kNoSocket = static_cast<std::uintptr_t>(HC_INVALID_SOCKET);
+}
 
 OscServer::OscServer(int port, bool tcp)
-    : m_port(port), m_tcp(tcp), m_running(false), m_socket_fd(-1) {}
+    : m_port(port), m_tcp(tcp), m_running(false), m_socket_fd(kNoSocket) {}
 
 OscServer::~OscServer() {
     stop();
@@ -15,21 +16,21 @@ OscServer::~OscServer() {
 
 bool OscServer::start() {
     if (m_running) return true;
+    if (!hc_sockets_init()) return false;
 
-    int sockfd;
+    hc_socket_t sockfd;
     if (m_tcp) {
         sockfd = socket(AF_INET, SOCK_STREAM, 0);
     } else {
         sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     }
 
-    if (sockfd < 0) {
+    if (sockfd == HC_INVALID_SOCKET) {
         return false;
     }
 
     // Non-blocking for both UDP (we drain) and TCP-accept (we never block).
-    int flags = fcntl(sockfd, F_GETFL, 0);
-    fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+    hc_socket_set_nonblocking(sockfd);
 
     sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -38,7 +39,7 @@ bool OscServer::start() {
     addr.sin_port = htons(m_port);
 
     if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        close(sockfd);
+        hc_close_socket(sockfd);
         return false;
     }
 
@@ -46,15 +47,15 @@ bool OscServer::start() {
         listen(sockfd, 5);
     }
 
-    m_socket_fd = sockfd;
+    m_socket_fd = static_cast<std::uintptr_t>(sockfd);
     m_running = true;
     return true;
 }
 
 void OscServer::stop() {
-    if (m_socket_fd >= 0) {
-        close(m_socket_fd);
-        m_socket_fd = -1;
+    if (m_socket_fd != kNoSocket) {
+        hc_close_socket(as_socket(m_socket_fd));
+        m_socket_fd = kNoSocket;
     }
     m_running = false;
 }
@@ -73,24 +74,27 @@ int OscServer::process() {
         // SuperCollider's TCP convention (uint32 BE length, then payload).
         sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
-        int client_fd = accept(m_socket_fd, (struct sockaddr*)&client_addr,
-                               &client_len);
-        if (client_fd >= 0) {
+        hc_socket_t client_fd = accept(as_socket(m_socket_fd),
+                                       (struct sockaddr*)&client_addr, &client_len);
+        if (client_fd != HC_INVALID_SOCKET) {
+            // On Windows an accepted socket inherits the listener's
+            // non-blocking mode, and MSG_WAITALL fails on one; POSIX does not
+            // inherit it. Either way the reads below block.
+            hc_socket_set_nonblocking(client_fd, false);
             uint32_t length;
-            if (recv(client_fd, &length, 4, MSG_WAITALL) == 4) {
+            if (recv(client_fd, reinterpret_cast<char*>(&length), 4, MSG_WAITALL) == 4) {
                 length = ntohl(length);
                 if (length > 0 && length < 1u << 20) {
                     char* buffer = new char[length];
-                    ssize_t received = recv(client_fd, buffer, length,
-                                            MSG_WAITALL);
-                    if (received == (ssize_t)length && m_handler) {
+                    auto received = recv(client_fd, buffer, (int)length, MSG_WAITALL);
+                    if (received == (int)length && m_handler) {
                         m_handler(buffer, length);
                         ++packets_handled;
                     }
                     delete[] buffer;
                 }
             }
-            close(client_fd);
+            hc_close_socket(client_fd);
         }
     } else {
         // UDP: drain all currently-buffered datagrams.
@@ -98,9 +102,8 @@ int OscServer::process() {
         for (;;) {
             sockaddr_in client_addr;
             socklen_t client_len = sizeof(client_addr);
-            ssize_t received = recvfrom(m_socket_fd, buffer, sizeof(buffer),
-                                        0, (struct sockaddr*)&client_addr,
-                                        &client_len);
+            auto received = recvfrom(as_socket(m_socket_fd), buffer, (int)sizeof(buffer),
+                                     0, (struct sockaddr*)&client_addr, &client_len);
             if (received <= 0) break; // EAGAIN/EWOULDBLOCK or error
             if (m_handler) {
                 m_handler(buffer, (size_t)received);

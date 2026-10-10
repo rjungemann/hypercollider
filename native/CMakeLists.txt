@@ -205,6 +205,15 @@ add_library(vmlib STATIC ${WAMR_RUNTIME_LIB_SOURCE})
 target_include_directories(vmlib PUBLIC
     ${WAMR_ROOT_DIR}/core/iwasm/include
 )
+# WAMR's libc-wasi sources are C11 (_Static_assert, _Alignof, atomics).
+# GCC and Clang accept that by default; MSVC's C compiler needs /std:c11,
+# which C_STANDARD 11 adds, plus /experimental:c11atomics for <stdatomic.h>.
+# Same as WAMR's own product-mini/platforms/windows/CMakeLists.txt.
+set_target_properties(vmlib PROPERTIES C_STANDARD 11)
+if(MSVC)
+    target_compile_options(vmlib PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:/experimental:c11atomics>)
+endif()
 
 # ---------------------------------------------------------------------------
 # CPM dependencies (fetched once, paths propagated via variables)

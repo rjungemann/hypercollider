@@ -31,7 +31,10 @@ private:
     int m_port;
     bool m_tcp;
     bool m_running;
-    int m_socket_fd;
+    // A socket: an fd on POSIX, a SOCKET (a UINT_PTR) on Windows. Spelled
+    // std::uintptr_t so this header does not pull in winsock2.h; see
+    // hc_platform.h for the type the .cpp uses.
+    std::uintptr_t m_socket_fd;
     PacketHandler m_handler;
 };
 
