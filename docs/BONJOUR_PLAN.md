@@ -286,12 +286,12 @@ const { browseLan } = require('./hc_zeroconf');
 if (!opts.scSynthHost && !opts.noZeroconf) {
   const browser = browseLan({
     onFound(name, host, port, protocol) {
-      // Notify sclang: call NetAddr._zeroconfFound(name, host, port)
-      const code = `NetAddr._zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
+      // Notify sclang: call NetAddr.zeroconfFound(name, host, port)
+      const code = `NetAddr.zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
       hclangEval(code);  // hc_wasm_eval_execute
     },
     onLost(name) {
-      const code = `NetAddr._zeroconfLost(${JSON.stringify(name)});`;
+      const code = `NetAddr.zeroconfLost(${JSON.stringify(name)});`;
       hclangEval(code);
     },
     logger,
@@ -302,7 +302,7 @@ if (!opts.scSynthHost && !opts.noZeroconf) {
 
 ### SC class library additions
 
-Add `NetAddr._zeroconfFound` / `NetAddr._zeroconfLost` class methods to the
+Add `NetAddr.zeroconfFound` / `NetAddr.zeroconfLost` class methods to the
 `src/class_library` (or to an HC-specific extension in `src/class_library/HC/`):
 
 ```supercollider
@@ -314,7 +314,7 @@ Add `NetAddr._zeroconfFound` / `NetAddr._zeroconfLost` class methods to the
         zeroconfServices = Dictionary.new;
     }
 
-    *_zeroconfFound { |name, host, port|
+    *zeroconfFound { |name, host, port|
         var addr = NetAddr(host, port);
         zeroconfServices.put(name.asSymbol, addr);
         this.changed(\serviceFound, name, addr);
@@ -325,7 +325,7 @@ Add `NetAddr._zeroconfFound` / `NetAddr._zeroconfLost` class methods to the
         ("mDNS: found " ++ name ++ " at " ++ host ++ ":" ++ port).postln;
     }
 
-    *_zeroconfLost { |name|
+    *zeroconfLost { |name|
         zeroconfServices.removeAt(name.asSymbol);
         this.changed(\serviceLost, name);
         ("mDNS: lost " ++ name).postln;
@@ -487,7 +487,7 @@ hclang --no-zeroconf                          # disable browse; use localhost de
 | File | Purpose |
 |------|---------|
 | `cli/hc_zeroconf.js` | `advertiseServer()` + `browseLan()` using `bonjour-service` |
-| `src/class_library/HC/HCNetAddrZeroconf.sc` | SC class extension adding `NetAddr._zeroconfFound`, `_zeroconfLost`, `findServiceNamed` |
+| `src/class_library/HC/HCNetAddrZeroconf.sc` | SC class extension adding `NetAddr.zeroconfFound`, `zeroconfLost`, `findServiceNamed` |
 
 ### Modified files
 
@@ -496,7 +496,7 @@ hclang --no-zeroconf                          # disable browse; use localhost de
 | `cli/package.json` | Add `bonjour-service` to `dependencies`; optionally add `mdns` to `optionalDependencies` |
 | `cli/hcsynth.js` | Import `hc_zeroconf`; add `--no-zeroconf` / `--zeroconf-name` flags; call `advertiseServer` in server mode; call `unpublish` on teardown |
 | `cli/hc_oscquery.js` | Add `_oscjson._tcp` mDNS advertisement inside `createOscQueryServer()` |
-| `cli/hclang.js` | Add `--no-zeroconf` / `--zeroconf-timeout` / `--zeroconf-name` flags; call `browseLan` when no `--scsynth-host`; inject discovered address into sclang via `NetAddr._zeroconfFound` |
+| `cli/hclang.js` | Add `--no-zeroconf` / `--zeroconf-timeout` / `--zeroconf-name` flags; call `browseLan` when no `--scsynth-host`; inject discovered address into sclang via `NetAddr.zeroconfFound` |
 | `cli/hclang_repl.js` | Same as `hclang.js`; start browse in REPL mode |
 | `bridge/server.js` | Optionally: expose WebSocket relay for browser IDE service discovery |
 | `docs/CLI_REFERENCE.md` | Document new flags |
@@ -525,7 +525,7 @@ hclang --no-zeroconf                          # disable browse; use localhost de
 - [x] Add `browseLan()` to `hc_zeroconf.js`.
 - [x] Add `--no-zeroconf` / `--zeroconf-timeout` / `--zeroconf-name` flags to
       `hclang.js` and `hclang_repl.js`.
-- [x] After hclang boots, start browse; inject `NetAddr._zeroconfFound` calls.
+- [x] After hclang boots, start browse; inject `NetAddr.zeroconfFound` calls.
 - [x] Create `src/class_library/HC/HCNetAddrZeroconf.sc`.
 - [x] Add `HCNetAddrZeroconf.sc` to the class library pack / include path.
 - [ ] **Acceptance**: running `hclang` with no `--scsynth-host` while hcsynth
@@ -590,7 +590,7 @@ the entry only once. The `mdns` native binding routes through `mDNSResponder`
 
 ### 6. hclang browsing race condition
 
-hclang boots and calls `NetAddr._zeroconfFound` asynchronously. SC code that
+hclang boots and calls `NetAddr.zeroconfFound` asynchronously. SC code that
 runs immediately in the REPL may execute before the discovery callback fires.
 The `findServiceNamed` implementation above handles this by deferring via a
 dependent, but code that accesses `Server.default` synchronously at boot
@@ -702,10 +702,10 @@ unless a dependency is noted.
       onLost, logger })` unless `--scsynth-host` was explicitly provided or
       `--no-zeroconf` is set.
 - [x] In the `onFound` callback, build and call
-      `hc_wasm_eval_execute("NetAddr._zeroconfFound(\"<name>\", \"<host>\",
+      `hc_wasm_eval_execute("NetAddr.zeroconfFound(\"<name>\", \"<host>\",
       <port>);")` using the existing eval channel.
 - [x] In the `onLost` callback, call
-      `hc_wasm_eval_execute("NetAddr._zeroconfLost(\"<name>\");")`.
+      `hc_wasm_eval_execute("NetAddr.zeroconfLost(\"<name>\");")`.
 - [x] Push the browser's `stop()` into the cleanup array so it is torn down on
       process exit.
 - [ ] Smoke-test: with hcsynth advertising, run `hclang` with no
@@ -726,10 +726,10 @@ unless a dependency is noted.
 - [x] Create the file with the `+ NetAddr { ... }` extension class shown in Part 2.
 - [x] Implement `*initClass` — initialise `zeroconfServices` as an empty
       `Dictionary`.
-- [x] Implement `*_zeroconfFound { |name, host, port|` — store in dictionary,
+- [x] Implement `*zeroconfFound { |name, host, port|` — store in dictionary,
       call `this.changed(\serviceFound, ...)`, auto-update matching `Server`
       instances by name.
-- [x] Implement `*_zeroconfLost { |name|` — remove from dictionary, call
+- [x] Implement `*zeroconfLost { |name|` — remove from dictionary, call
       `this.changed(\serviceLost, ...)`.
 - [x] Implement `*findServiceNamed { |name, action|` — synchronous fast-path
       if already known; async dependant path otherwise.
@@ -737,12 +737,12 @@ unless a dependency is noted.
       - Check `tools/pack_sc_classlib.js` for the HC extension directory glob;
         add `src/class_library/HC/` if absent.
       - Or add an explicit entry for `HCNetAddrZeroconf.sc`.
-- [ ] SC unit test: `NetAddr._zeroconfFound("foo", "127.0.0.1", 57110);
+- [ ] SC unit test: `NetAddr.zeroconfFound("foo", "127.0.0.1", 57110);
       NetAddr.zeroconfServices[\foo].postln` → prints `NetAddr("127.0.0.1",
       57110)`.
 - [ ] SC unit test: `NetAddr.findServiceNamed("foo") { |a| a.postln }` with
       the service already in the dictionary → prints immediately.
-- [ ] SC unit test: `NetAddr._zeroconfLost("foo");
+- [ ] SC unit test: `NetAddr.zeroconfLost("foo");
       NetAddr.zeroconfServices[\foo].postln` → prints `nil`.
 
 ### `docs/CLI_REFERENCE.md`
