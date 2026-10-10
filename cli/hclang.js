@@ -676,6 +676,8 @@ async function runSclangCli(opts) {
   sclang.__sc_wasm_unix_bridge = null;
 
   if (udpClient) {
+    // Closing first would drop the packets still queued for --scsynth-host.
+    await udpClient.drain();
     udpClient.close();
   }
 

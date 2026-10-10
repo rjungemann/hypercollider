@@ -356,7 +356,7 @@ function extractFirstOscString(buf) {
  * @param {string}  host    - Remote scsynth host
  * @param {number}  port    - Remote scsynth port
  * @param {object}  logger  - Logger instance
- * @returns {{ send, onReply, bindPort, close }}
+ * @returns {{ send, drain, onReply, bindPort, close }}
  */
 function createUdpClient(host, port, logger) {
   const socket = dgram.createSocket('udp4');
@@ -372,9 +372,27 @@ function createUdpClient(host, port, logger) {
     logger.warn(`UDP client error: ${err.message}`);
   });
 
+  // dgram sends are asynchronous: a socket closed before they complete drops
+  // them. Count them so drain() can wait.
+  let pending = 0;
+  let drained = [];
+
   function send(bytes) {
     const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
-    socket.send(buf, 0, buf.length, port, host);
+    pending++;
+    socket.send(buf, 0, buf.length, port, host, () => {
+      pending--;
+      if (pending === 0) {
+        const waiters = drained;
+        drained = [];
+        waiters.forEach((resolve) => resolve());
+      }
+    });
+  }
+
+  // Resolves once every send so far has been handed to the OS.
+  function drain() {
+    return pending === 0 ? Promise.resolve() : new Promise((resolve) => drained.push(resolve));
   }
 
   function onReply(callback) {
@@ -396,7 +414,7 @@ function createUdpClient(host, port, logger) {
     try { socket.close(); } catch (_) {}
   }
 
-  return { send, onReply, bindPort, close };
+  return { send, drain, onReply, bindPort, close };
 }
 
 // ---------------------------------------------------------------------------
