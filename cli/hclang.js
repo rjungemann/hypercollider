@@ -403,12 +403,12 @@ async function runSclangCli(opts) {
   stage("wasm_load");
 
   const midiBridge = createMidiBridge(sclang, logger);
-  sclang.__hc_wasm_midi_bridge = midiBridge;
-  globalThis.__hc_wasm_midi_bridge = midiBridge;
+  sclang.__sc_wasm_midi_bridge = midiBridge;
+  globalThis.__sc_wasm_midi_bridge = midiBridge;
 
   const unixBridge = createUnixBridge(sclang, logger);
-  sclang.__hc_wasm_unix_bridge = unixBridge;
-  globalThis.__hc_wasm_unix_bridge = unixBridge;
+  sclang.__sc_wasm_unix_bridge = unixBridge;
+  globalThis.__sc_wasm_unix_bridge = unixBridge;
   stage("setup_bridges");
 
   let udpClient = null;
@@ -444,8 +444,8 @@ async function runSclangCli(opts) {
     return 0;
   };
 
-  globalThis.__hc_wasm_forward_osc_to_engine = captureBridge;
-  sclang.__hc_wasm_forward_osc_to_engine = captureBridge;
+  globalThis.__sc_wasm_forward_osc_to_engine = captureBridge;
+  sclang.__sc_wasm_forward_osc_to_engine = captureBridge;
 
   const postCb = sclang.addFunction((ptr, len) => {
     const text = sclang.UTF8ToString(ptr, len);
@@ -661,8 +661,8 @@ async function runSclangCli(opts) {
     logger.debug('Called Main.stop');
   }
 
-  globalThis.__hc_wasm_forward_osc_to_engine = null;
-  sclang.__hc_wasm_forward_osc_to_engine = null;
+  globalThis.__sc_wasm_forward_osc_to_engine = null;
+  sclang.__sc_wasm_forward_osc_to_engine = null;
   if (midiBridge && typeof midiBridge.disposeClient === 'function') {
     try {
       midiBridge.disposeClient();
@@ -670,10 +670,10 @@ async function runSclangCli(opts) {
       // ignore cleanup failures
     }
   }
-  globalThis.__hc_wasm_midi_bridge = null;
-  sclang.__hc_wasm_midi_bridge = null;
-  globalThis.__hc_wasm_unix_bridge = null;
-  sclang.__hc_wasm_unix_bridge = null;
+  globalThis.__sc_wasm_midi_bridge = null;
+  sclang.__sc_wasm_midi_bridge = null;
+  globalThis.__sc_wasm_unix_bridge = null;
+  sclang.__sc_wasm_unix_bridge = null;
 
   if (udpClient) {
     udpClient.close();

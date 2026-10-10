@@ -335,8 +335,8 @@ async function runWasmRepl(opts) {
   ]);
 
   const unixBridge = createUnixBridge(sclang);
-  sclang.__hc_wasm_unix_bridge = unixBridge;
-  globalThis.__hc_wasm_unix_bridge = unixBridge;
+  sclang.__sc_wasm_unix_bridge = unixBridge;
+  globalThis.__sc_wasm_unix_bridge = unixBridge;
 
   const worldId = scsynth._hc_wasm_world_create(opts.sampleRate, opts.blockSize);
   if (!worldId) throw new Error('hc_wasm_world_create failed');
@@ -356,8 +356,8 @@ async function runWasmRepl(opts) {
     }
   };
 
-  globalThis.__hc_wasm_forward_osc_to_engine = oscBridge;
-  sclang.__hc_wasm_forward_osc_to_engine = oscBridge;
+  globalThis.__sc_wasm_forward_osc_to_engine = oscBridge;
+  sclang.__sc_wasm_forward_osc_to_engine = oscBridge;
 
   const postCb = sclang.addFunction((ptr, len) => {
     const text = sclang.UTF8ToString(ptr, len);
