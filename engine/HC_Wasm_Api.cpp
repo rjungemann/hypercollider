@@ -301,10 +301,14 @@ int hc_wasm_render(int world_id, float* output_buffer, int num_samples, int num_
         int samples_this_block = buf_len;
         int base_out = b * buf_len * num_channels;
 
+        // A bus no Out wrote this block still holds the last block written
+        // to it (Out copies on the first touch of a block, it does not
+        // clear), so it is silent, as scsynth's audio driver treats it.
         for (int ch = 0; ch < copy_chans; ++ch) {
             float* bus = world->mAudioBus + ch * buf_len;
+            bool touched = world->mAudioBusTouched[ch] == world->mBufCounter;
             for (int s = 0; s < samples_this_block; ++s)
-                output_buffer[base_out + s * num_channels + ch] = bus[s];
+                output_buffer[base_out + s * num_channels + ch] = touched ? bus[s] : 0.0f;
         }
         // Zero any extra channels not produced by the engine.
         for (int ch = copy_chans; ch < num_channels; ++ch) {
