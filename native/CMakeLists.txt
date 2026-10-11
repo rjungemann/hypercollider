@@ -66,11 +66,21 @@ endif()
 # ---------------------------------------------------------------------------
 # WAMR — fetch, configure, and build vmlib here (once, shared by both targets)
 # ---------------------------------------------------------------------------
+# The patch fixes WAMR's Windows WASI file layer, which could not run the
+# class-library walk (see the patch for the two bugs). Neither is fixed
+# upstream as of WAMR-2.4.4 / main; drop the patch with a release that is.
+# cmake/apply_patch.cmake rather than CPM's PATCHES: that re-runs `patch` on
+# every configure and fails once the patch is in.
+find_package(Git REQUIRED)
 CPMAddPackage(
     NAME wamr
     GITHUB_REPOSITORY bytecodealliance/wasm-micro-runtime
     GIT_TAG WAMR-2.4.4
     DOWNLOAD_ONLY YES
+    PATCH_COMMAND ${CMAKE_COMMAND}
+        -DGIT=${GIT_EXECUTABLE}
+        -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/wamr-2.4.4-windows-wasi-fs.patch
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/apply_patch.cmake
 )
 
 # Platform
