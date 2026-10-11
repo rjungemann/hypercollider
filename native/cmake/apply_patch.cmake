@@ -3,7 +3,10 @@
 # Run as a FetchContent/CPM PATCH_COMMAND, in the dependency's source tree:
 #
 #   PATCH_COMMAND ${CMAKE_COMMAND} -DGIT=${GIT_EXECUTABLE}
-#                 -DPATCH=<file.patch> -P <this file>
+#                 -DPATCH=<file.patch> -DWORK_DIR=<scratch dir> -P <this file>
+#
+# WORK_DIR holds the LF copy of the patch; it defaults to the working
+# directory, which is the dependency's source tree, so pass a build dir.
 #
 # CPM's own PATCHES option runs `patch` on every configure (FetchContent's git
 # update step always runs, and the patch step follows it), which fails on the
@@ -19,11 +22,14 @@
 if(NOT GIT OR NOT PATCH)
     message(FATAL_ERROR "apply_patch.cmake needs -DGIT=<git> -DPATCH=<file>")
 endif()
+if(NOT WORK_DIR)
+    set(WORK_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+endif()
 
 # file(READ) drops the CR of each CRLF, so what it returns is already LF.
 file(READ "${PATCH}" patch_text)
 get_filename_component(patch_name "${PATCH}" NAME)
-set(lf_patch "${CMAKE_CURRENT_BINARY_DIR}/${patch_name}.lf")
+set(lf_patch "${WORK_DIR}/${patch_name}.lf")
 file(WRITE "${lf_patch}" "${patch_text}")
 
 # The files the patch changes: its "+++ b/<path>" lines.

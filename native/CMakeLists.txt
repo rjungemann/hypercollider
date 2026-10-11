@@ -80,6 +80,7 @@ CPMAddPackage(
     PATCH_COMMAND ${CMAKE_COMMAND}
         -DGIT=${GIT_EXECUTABLE}
         -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/wamr-2.4.4-windows-wasi-fs.patch
+        -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/apply_patch.cmake
 )
 
