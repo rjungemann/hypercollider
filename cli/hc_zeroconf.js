@@ -15,7 +15,10 @@
 
 let Bonjour;
 try {
-  Bonjour = require('bonjour-service');
+  // bonjour-service 1.x exports { Bonjour, Service, Browser, default }, not
+  // the constructor itself.
+  const mod = require('bonjour-service');
+  Bonjour = mod.Bonjour || mod.default || mod;
 } catch (_) {
   // bonjour-service not installed — provide no-op stubs
 }

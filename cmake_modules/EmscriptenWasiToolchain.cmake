@@ -58,8 +58,16 @@ set(CMAKE_RANLIB "${EMSCRIPTEN_TOOLCHAIN_PATH}/emranlib")
 # Emscripten-specific flags
 set(EMSCRIPTEN_FLAGS "-fPIC")
 
-# Enable SIMD by default (wasm_simd128)
-set(EMSCRIPTEN_FLAGS "${EMSCRIPTEN_FLAGS} -msimd128")
+# Enable SIMD by default (wasm_simd128). -DHC_WASM_SIMD=OFF builds without
+# it, for hosts that cannot run v128 code: WAMR's interpreter runs SIMD only
+# through SIMDe, which WAMR turns off on Windows ("SIMDe doesnt support
+# platform windows"), so there the module fails to load with "v128 value
+# type requires simd feature". Nothing here uses SIMD intrinsics directly;
+# -msimd128 is auto-vectorisation (and nova-simd's wasm path).
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES HC_WASM_SIMD)
+if(NOT DEFINED HC_WASM_SIMD OR HC_WASM_SIMD)
+    set(EMSCRIPTEN_FLAGS "${EMSCRIPTEN_FLAGS} -msimd128")
+endif()
 
 # Enable WASM tail-call so scscm's recursive idioms compile to
 # `return_call` / `return_call_indirect` rather than ordinary calls

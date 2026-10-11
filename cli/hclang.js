@@ -19,6 +19,10 @@ const { browseLan } = require('./hc_zeroconf');
 function defaultSclangJs() {
   const dir = process.env.HC_LIBEXEC_DIR;
   if (dir) return path.join(dir, 'hclang.js');
+  // The `cli` bundle (build/wasm/cli/) keeps the module in libexec/ next to
+  // this script; from a checkout it is in the build tree.
+  const bundled = path.join(__dirname, 'libexec', 'hclang.js');
+  if (fs.existsSync(bundled)) return bundled;
   return 'build/wasm/lang/hclang/hclang.js';
 }
 
@@ -123,13 +127,9 @@ function mountQuarksDir(module) {
   
   try {
     // Create the parent directory structure if needed
-    const parentDir = '/home/user/.local/share/SuperCollider';
-    if (!FS.analyzePath(parentDir).exists) {
-      FS.mkdir(parentDir, 0o755, true);
-    }
-    if (!FS.analyzePath(quarksDir).exists) {
-      FS.mkdir(quarksDir, 0o755);
-    }
+    // FS.mkdir makes one level and has no "recursive" argument; mkdirTree
+    // makes the parents too.
+    FS.mkdirTree(quarksDir, 0o755);
 
     // The actual host path for quarks - use the user's real quarks directory
     // On macOS: ~/Library/Application Support/SuperCollider/downloaded-quarks
@@ -163,10 +163,6 @@ function mountQuarksDir(module) {
 
     // If real dir doesn't exist or mount failed, create an empty directory
     // This allows Quarks.folder to exist but be empty
-    if (!FS.analyzePath(quarksDir).exists) {
-      FS.mkdir(quarksDir, 0o755, true);
-    }
-
     return true;
   } catch (e) {
     console.warn(`[quarks] Error mounting quarks dir: ${e}`);
@@ -189,11 +185,8 @@ function mountExtraClassPath(module, hostDir, index) {
   const mountPoint = `/extra-class-lib/${index}/${basename}`;
   
   try {
-    // Create parent directory structure
-    const parentDir = `/extra-class-lib/${index}`;
-    if (!FS.analyzePath(parentDir).exists) {
-      FS.mkdir(parentDir, 0o755, true);
-    }
+    // FS.mount needs the mount point to exist.
+    FS.mkdirTree(mountPoint, 0o755);
 
     // Mount the host directory
     try {
@@ -369,6 +362,8 @@ function tryRestoreSnapshot(module, sclangJsPath) {
 
 async function runSclangCli(opts) {
   const logger = new Logger(opts.verbosity || VERBOSITY_NORMAL);
+  // Exported: callers (the tests among them) pass only the options they use.
+  const extraClassPaths = opts.extraClassPaths || [];
 
   logger.debug('runSclangCli started', { opts });
 
@@ -403,12 +398,12 @@ async function runSclangCli(opts) {
   stage("wasm_load");
 
   const midiBridge = createMidiBridge(sclang, logger);
-  sclang.__hc_wasm_midi_bridge = midiBridge;
-  globalThis.__hc_wasm_midi_bridge = midiBridge;
+  sclang.__sc_wasm_midi_bridge = midiBridge;
+  globalThis.__sc_wasm_midi_bridge = midiBridge;
 
   const unixBridge = createUnixBridge(sclang, logger);
-  sclang.__hc_wasm_unix_bridge = unixBridge;
-  globalThis.__hc_wasm_unix_bridge = unixBridge;
+  sclang.__sc_wasm_unix_bridge = unixBridge;
+  globalThis.__sc_wasm_unix_bridge = unixBridge;
   stage("setup_bridges");
 
   let udpClient = null;
@@ -444,8 +439,8 @@ async function runSclangCli(opts) {
     return 0;
   };
 
-  globalThis.__hc_wasm_forward_osc_to_engine = captureBridge;
-  sclang.__hc_wasm_forward_osc_to_engine = captureBridge;
+  globalThis.__sc_wasm_forward_osc_to_engine = captureBridge;
+  sclang.__sc_wasm_forward_osc_to_engine = captureBridge;
 
   const postCb = sclang.addFunction((ptr, len) => {
     const text = sclang.UTF8ToString(ptr, len);
@@ -468,8 +463,12 @@ async function runSclangCli(opts) {
   // Try to restore a heap snapshot before registering callbacks — the restore
   // overwrites all linear memory (including any previously written callback
   // pointers), so callbacks must always be (re-)registered after this call.
+  // A snapshot holds a compiled class library, so restoring one skips the
+  // compile that --extra-class-path needs, and saving one after compiling
+  // extra classes would hand them to every later run. Neither, then.
+  const useSnapshot = !opts.noSnapshot && extraClassPaths.length === 0;
   let snapshotRestored = false;
-  if (!opts.noSnapshot) {
+  if (useSnapshot) {
     snapshotRestored = tryRestoreSnapshot(sclang, wasmJsPath);
   }
   if (snapshotRestored) {
@@ -491,7 +490,7 @@ async function runSclangCli(opts) {
     stage("mount_quarks_dir");
 
     // Mount each extra class path and register with language config
-    opts.extraClassPaths.forEach((hostDir, index) => {
+    extraClassPaths.forEach((hostDir, index) => {
       if (fs.existsSync(hostDir)) {
         mountExtraClassPath(sclang, hostDir, index);
         
@@ -514,7 +513,7 @@ async function runSclangCli(opts) {
         console.warn(`[quarks] Extra class path not found: ${hostDir}`);
       }
     });
-    if (opts.extraClassPaths.length > 0) {
+    if (extraClassPaths.length > 0) {
       stage("mount_extra_class_paths");
     }
   } else {
@@ -527,7 +526,7 @@ async function runSclangCli(opts) {
   if (initRc !== 0) throw new Error(`hc_wasm_eval_boot_sequence failed (${initRc})`);
 
   // Save snapshot after first successful full boot so subsequent runs are fast.
-  if (!snapshotRestored && !opts.noSnapshot) {
+  if (!snapshotRestored && useSnapshot) {
     saveSnapshot(sclang, wasmJsPath);
     stage("snapshot_save");
   }
@@ -557,7 +556,7 @@ async function runSclangCli(opts) {
         // Inject SC code to notify sclang about discovered service
         // Only handle UDP for now (SuperCollider traditionally uses UDP)
         if (protocol === 'udp' && name === opts.zeroconfName) {
-          const code = `NetAddr._zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
+          const code = `NetAddr.zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
           const p = allocCString(sclang, code);
           try {
             sclang._hc_wasm_eval_execute(p, code.length);
@@ -567,7 +566,7 @@ async function runSclangCli(opts) {
         }
       },
       onLost(name) {
-        const code = `NetAddr._zeroconfLost(${JSON.stringify(name)});`;
+        const code = `NetAddr.zeroconfLost(${JSON.stringify(name)});`;
         const p = allocCString(sclang, code);
         try {
           sclang._hc_wasm_eval_execute(p, code.length);
@@ -661,8 +660,8 @@ async function runSclangCli(opts) {
     logger.debug('Called Main.stop');
   }
 
-  globalThis.__hc_wasm_forward_osc_to_engine = null;
-  sclang.__hc_wasm_forward_osc_to_engine = null;
+  globalThis.__sc_wasm_forward_osc_to_engine = null;
+  sclang.__sc_wasm_forward_osc_to_engine = null;
   if (midiBridge && typeof midiBridge.disposeClient === 'function') {
     try {
       midiBridge.disposeClient();
@@ -670,12 +669,14 @@ async function runSclangCli(opts) {
       // ignore cleanup failures
     }
   }
-  globalThis.__hc_wasm_midi_bridge = null;
-  sclang.__hc_wasm_midi_bridge = null;
-  globalThis.__hc_wasm_unix_bridge = null;
-  sclang.__hc_wasm_unix_bridge = null;
+  globalThis.__sc_wasm_midi_bridge = null;
+  sclang.__sc_wasm_midi_bridge = null;
+  globalThis.__sc_wasm_unix_bridge = null;
+  sclang.__sc_wasm_unix_bridge = null;
 
   if (udpClient) {
+    // Closing first would drop the packets still queued for --scsynth-host.
+    await udpClient.drain();
     udpClient.close();
   }
 

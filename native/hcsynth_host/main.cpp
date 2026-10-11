@@ -9,8 +9,17 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <unistd.h>
+#include <thread>
 #include <vector>
+
+// The embedded blob is defined in a generated C file (cmake/EmbedWasmRun.cmake),
+// so it needs C linkage: MSVC mangles C++ variable names, GCC and Clang do not.
+#ifdef HC_EMBEDDED_WASM
+extern "C" {
+extern const uint8_t hcsynth_wasm_blob[];
+extern const size_t  hcsynth_wasm_blob_len;
+}
+#endif
 
 // Global WASM host instance
 static WasmHost g_wasm_host;
@@ -282,8 +291,6 @@ int main(int argc, char** argv) {
         || (getenv("HC_WASM_FROM_DISK") != nullptr);
     bool loaded = false;
 #ifdef HC_EMBEDDED_WASM
-    extern const uint8_t hcsynth_wasm_blob[];
-    extern const size_t  hcsynth_wasm_blob_len;
     if (!prefer_disk) {
         if (!g_wasm_host.load(hcsynth_wasm_blob,
                               static_cast<uint32_t>(hcsynth_wasm_blob_len),
@@ -364,7 +371,9 @@ int main(int argc, char** argv) {
     // hc_wasm_osc_dispatch on the WASM side, copying the bytes into WASM
     // linear memory first so the engine can address them. Phase 7 closes
     // the loop opened by hclang_native's --scsynth-host forwarding.
-    OscServer osc_server(opts.udp_port, opts.tcp_port > 0);
+    // TCP when --tcp-port is given, else UDP (the server is one or the other).
+    OscServer osc_server(opts.tcp_port > 0 ? opts.tcp_port : opts.udp_port,
+                         opts.tcp_port > 0);
     if (opts.udp_port > 0 || opts.tcp_port > 0) {
         osc_server.set_packet_handler([&opts](const char* buf, size_t len) {
             if (len == 0) return;
@@ -468,7 +477,7 @@ int main(int argc, char** argv) {
             while (remaining > 0) {
                 int got = osc_server.process();
                 if (got > 0) break;
-                usleep(poll_step * 1000);
+                std::this_thread::sleep_for(std::chrono::milliseconds(poll_step));
                 remaining -= poll_step;
             }
             if (remaining <= 0 && opts.verbosity > 0) {

@@ -25,8 +25,8 @@ jobs:
         run: npm install
         working-directory: cli
 
-      - name: Run scscm (hcl) tests
-        run: node tests/test_hcl.js
+      - name: Run scscm (lhc) tests
+        run: node tests/test_lhc.js
         working-directory: cli
 
       - name: Run SC formatter tests
@@ -89,7 +89,16 @@ jobs:
             wasm-${{ runner.os }}-
 
       - name: Configure WASM build
-        run: cmake --preset wasm_release
+        # The cache above restores build/wasm from an earlier run, and the
+        # compiler it recorded (CMakeFiles/<version>/CMakeCCompiler.cmake) is
+        # that run's emsdk, which setup-emsdk installs under a fresh
+        # _temp/<uuid>/ each time. Configuring over it fails
+        # ("CMAKE_C_COMPILER ... is not a full path to an existing compiler
+        # tool") whenever the cache key matches. Drop the stale configuration
+        # and keep the objects: CMake reconfigures against this run's emsdk.
+        run: |
+          rm -rf build/wasm/CMakeCache.txt build/wasm/CMakeFiles
+          cmake --preset wasm_release
 
       - name: Build hcsynth and hclang
         # Single cmake invocation — two concurrent `cmake --build` processes
@@ -116,7 +125,7 @@ jobs:
       - name: Run CLI tests
         run: |
           node tests/test_hc.js
-          node tests/test_hcl.js
+          node tests/test_lhc.js
           node tests/test_sc_format.js
         working-directory: cli
 

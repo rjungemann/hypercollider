@@ -16,6 +16,10 @@ const { advertiseServer } = require('./hc_zeroconf');
 function defaultScsynthJs() {
   const dir = process.env.HC_LIBEXEC_DIR;
   if (dir) return path.join(dir, 'hcsynth.js');
+  // The `cli` bundle (build/wasm/cli/) keeps the module in libexec/ next to
+  // this script; from a checkout it is in the build tree.
+  const bundled = path.join(__dirname, 'libexec', 'hcsynth.js');
+  if (fs.existsSync(bundled)) return bundled;
   return 'build/wasm/server/hcsynth/hcsynth.js';
 }
 

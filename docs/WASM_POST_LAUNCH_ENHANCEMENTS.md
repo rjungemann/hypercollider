@@ -27,7 +27,7 @@ For the full feature surface area, see
 - **Phase 2.6 — Bonjour/mDNS service discovery** (2026-05-09). `hcsynth`
   advertises `_osc._udp`, `_osc._tcp`, and `_oscjson._tcp` services via mDNS.
   `hclang` and `hclang_repl` browse for OSC services and inject `NetAddr`
-  objects into the sclang environment via `NetAddr._zeroconfFound` and
+  objects into the sclang environment via `NetAddr.zeroconfFound` and
   `NetAddr.findServiceNamed`.
 - **Phase 2.4 — Preset management** (2026-05-07). CLI `.preset` commands +
   browser preset panel.

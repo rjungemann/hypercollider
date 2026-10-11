@@ -66,11 +66,22 @@ endif()
 # ---------------------------------------------------------------------------
 # WAMR — fetch, configure, and build vmlib here (once, shared by both targets)
 # ---------------------------------------------------------------------------
+# The patch fixes WAMR's Windows WASI file layer, which could not run the
+# class-library walk (see the patch for the two bugs). Neither is fixed
+# upstream as of WAMR-2.4.4 / main; drop the patch with a release that is.
+# cmake/apply_patch.cmake rather than CPM's PATCHES: that re-runs `patch` on
+# every configure and fails once the patch is in.
+find_package(Git REQUIRED)
 CPMAddPackage(
     NAME wamr
     GITHUB_REPOSITORY bytecodealliance/wasm-micro-runtime
     GIT_TAG WAMR-2.4.4
     DOWNLOAD_ONLY YES
+    PATCH_COMMAND ${CMAKE_COMMAND}
+        -DGIT=${GIT_EXECUTABLE}
+        -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/wamr-2.4.4-windows-wasi-fs.patch
+        -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/apply_patch.cmake
 )
 
 # Platform
@@ -205,6 +216,20 @@ add_library(vmlib STATIC ${WAMR_RUNTIME_LIB_SOURCE})
 target_include_directories(vmlib PUBLIC
     ${WAMR_ROOT_DIR}/core/iwasm/include
 )
+# WAMR's libc-wasi sources are C11 (_Static_assert, _Alignof, atomics).
+# GCC and Clang accept that by default; MSVC's C compiler needs /std:c11,
+# which C_STANDARD 11 adds, plus /experimental:c11atomics for <stdatomic.h>.
+# Same as WAMR's own product-mini/platforms/windows/CMakeLists.txt.
+set_target_properties(vmlib PROPERTIES C_STANDARD 11)
+if(MSVC)
+    target_compile_options(vmlib PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:/experimental:c11atomics>)
+endif()
+if(WIN32)
+    # WAMR's Windows platform calls NtQueryTimerResolution (win_clock.c, in
+    # ntdll) and Winsock (win_socket.c); WAMR's own Windows build links both.
+    target_link_libraries(vmlib PUBLIC ntdll ws2_32)
+endif()
 
 # ---------------------------------------------------------------------------
 # CPM dependencies (fetched once, paths propagated via variables)

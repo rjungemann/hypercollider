@@ -12,6 +12,7 @@ add_executable(hcsynth_native
 
 target_include_directories(hcsynth_native PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common
     ${MINIAUDIO_SOURCE_DIR}
     ${DR_LIBS_SOURCE_DIR}
     ${TINYOSC_SOURCE_DIR}
@@ -37,6 +38,8 @@ if(APPLE)
     )
 elseif(UNIX)
     target_link_libraries(hcsynth_native PRIVATE -lpthread -ldl -lm)
+elseif(WIN32)
+    target_link_libraries(hcsynth_native PRIVATE ws2_32) # the OSC server
 endif()
 
 install(TARGETS hcsynth_native DESTINATION bin)

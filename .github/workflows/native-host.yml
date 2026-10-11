@@ -51,13 +51,22 @@ jobs:
             build/wasi/lang/hclang/hclang.wasm
             build/wasi/server/hcsynth/hcsynth.wasm
             build/wasi/lang/hclang/hclang_classlib.pack
-          key: wasi-${{ runner.os }}-${{ hashFiles('src/lang/**', 'src/server/**', 'src/common/**', 'engine/**', 'src/lang/CMakeLists.txt', 'src/server/core/CMakeLists.txt', 'cmake_modules/EmscriptenWasiToolchain.cmake') }}
+            build/wasi-nosimd/lang/hclang/hclang.wasm
+            build/wasi-nosimd/server/hcsynth/hcsynth.wasm
+          key: wasi-${{ runner.os }}-${{ hashFiles('src/lang/**', 'src/server/**', 'src/common/**', 'src/class_library/**', 'tools/pack_sc_classlib.js', 'engine/**', 'src/lang/CMakeLists.txt', 'src/server/core/CMakeLists.txt', 'cmake_modules/EmscriptenWasiToolchain.cmake') }}
 
+      # Two builds: with SIMD (Linux, macOS) and without it (Windows). WAMR's
+      # interpreter runs v128 code only through SIMDe, which WAMR turns off
+      # on Windows, so a SIMD module fails to load there ("v128 value type
+      # requires simd feature"). The two render the same audio bit for bit;
+      # SIMD is only auto-vectorisation.
       - name: Build WASI hclang.wasm + hcsynth.wasm
         if: steps.wasi-cache.outputs.cache-hit != 'true'
         run: |
           cmake --preset wasi_release
           cmake --build build/wasi --target hclang hcsynth -j$(nproc)
+          cmake --preset wasi_release -B build/wasi-nosimd -DHC_WASM_SIMD=OFF
+          cmake --build build/wasi-nosimd --target hclang hcsynth -j$(nproc)
 
       # Stage into a flat directory for the artifact, then reconstruct
       # the build/wasi/{lang,server}/... layout in the consuming jobs.
@@ -69,6 +78,8 @@ jobs:
           cp build/wasi/lang/hclang/hclang.wasm           wasi-stage/
           cp build/wasi/lang/hclang/hclang_classlib.pack  wasi-stage/ 2>/dev/null || true
           cp build/wasi/server/hcsynth/hcsynth.wasm       wasi-stage/
+          cp build/wasi-nosimd/lang/hclang/hclang.wasm     wasi-stage/hclang-nosimd.wasm
+          cp build/wasi-nosimd/server/hcsynth/hcsynth.wasm wasi-stage/hcsynth-nosimd.wasm
 
       - name: Upload WASI artefacts
         uses: actions/upload-artifact@v4
@@ -110,10 +121,13 @@ jobs:
       - name: Restore WASI tree layout
         shell: bash
         run: |
+          # Windows embeds the modules built without SIMD (see build-wasi).
+          variant=""
+          if [ "$RUNNER_OS" = "Windows" ]; then variant="-nosimd"; fi
           mkdir -p build/wasi/lang/hclang build/wasi/server/hcsynth
-          cp wasi-stage/hclang.wasm          build/wasi/lang/hclang/
-          cp wasi-stage/hclang_classlib.pack build/wasi/lang/hclang/ 2>/dev/null || true
-          cp wasi-stage/hcsynth.wasm         build/wasi/server/hcsynth/
+          cp "wasi-stage/hclang${variant}.wasm"  build/wasi/lang/hclang/hclang.wasm
+          cp wasi-stage/hclang_classlib.pack     build/wasi/lang/hclang/ 2>/dev/null || true
+          cp "wasi-stage/hcsynth${variant}.wasm" build/wasi/server/hcsynth/hcsynth.wasm
           ls -la build/wasi/lang/hclang/ build/wasi/server/hcsynth/
 
       - name: Configure native build
@@ -188,21 +202,13 @@ jobs:
           if ($out -notmatch "(?m)^6")         { Write-Error "missing 6";        exit 1 }
 
       # ── Quarks CLI Tests (POSIX) ────────────────────────────────────────
+      # Track B: the hclang_native just built. Track A tests the Node CLI,
+      # which needs the Emscripten build this job does not have (it only
+      # downloads the WASI blobs); ci.yml's WASM job runs it.
       - name: Quarks CLI tests (POSIX)
         if: runner.os != 'Windows'
         shell: bash
-        run: |
-          # Build the WASM artifacts needed for Node.js track
-          cmake --build build/wasi --target hclang -j
-          # Copy hclang.wasm to cli directory for Node.js tests
-          mkdir -p build/wasm/cli
-          cp build/wasi/lang/hclang/hclang.wasm build/wasm/cli/
-          cp build/wasi/lang/hclang/hclang.data build/wasm/cli/ 2>/dev/null || true
-          cp build/wasi/lang/hclang/hclang_classlib.pack build/wasm/cli/ 2>/dev/null || true
-          # Build Node.js CLI bundle
-          cmake --build build/wasm --target cli -j
-          # Run quarks tests
-          bash tests/quarks/test_runner.sh --track both --ci
+        run: bash tests/quarks/test_runner.sh --track B --ci
 
       # ── Tagged-release artefacts ───────────────────────────────────────────
       # Only on `git push v*` tags. One artefact per OS so each native

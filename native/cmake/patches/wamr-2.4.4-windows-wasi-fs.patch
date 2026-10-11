@@ -1,0 +1,77 @@
+WAMR 2.4.4: two bugs in the Windows WASI file layer (win_file.c), applied to
+the fetched sources by cmake/apply_patch.cmake (see native/CMakeLists.txt).
+With them, hclang_native could not walk its class library on Windows.
+Neither is fixed upstream (WAMR-2.4.4, main).
+
+1. get_handle_filepath asked GetFinalPathNameByHandleW for VOLUME_NAME_NONE,
+   a path without its drive ("\Users\...\dir"). os_openat combines it with
+   the relative path and opens that, so it resolves against the current
+   drive: a preopened directory on any other drive fails with
+   ERROR_PATH_NOT_FOUND, reported as EINVAL. hclang_native extracts its class
+   library to %TEMP% (C:), and CI runs it from D:\a\... It now asks for
+   VOLUME_NAME_DOS and drops the \\?\ prefix, which turns off path
+   normalisation (get_handle_to_parent_directory appends "/.." to the
+   result). It also passed the buffer size doubled (bytes for wchar_ts).
+
+2. At the end of a directory, read_next_dir_entry rewinds the stream (cookie
+   0), so the next os_readdir starts the listing over, while fd_readdir
+   still holds the old offset and does not seek. A reader that asks again
+   past the end (readdir reads until a read returns nothing) gets the first
+   entries back forever. os_readdir now stays at the end.
+
+--- a/core/shared/platform/windows/win_file.c
++++ b/core/shared/platform/windows/win_file.c
+@@ -135,16 +135,27 @@
+ static __wasi_errno_t
+ get_handle_filepath(HANDLE handle, wchar_t *buf, DWORD buf_size)
+ {
+-    DWORD bufsize_in_chars = buf_size * (sizeof(wchar_t) / sizeof(char));
++    // buf_size counts wchar_ts, as GetFinalPathNameByHandleW does. Keep the
++    // drive (VOLUME_NAME_DOS): a VOLUME_NAME_NONE path is resolved against
++    // the current drive, so a preopened directory on any other drive could
++    // not be opened.
+     DWORD size = GetFinalPathNameByHandleW(
+-        handle, buf, bufsize_in_chars, FILE_NAME_NORMALIZED | VOLUME_NAME_NONE);
++        handle, buf, buf_size, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+ 
+-    if (size > bufsize_in_chars)
++    if (size >= buf_size)
+         return __WASI_ENAMETOOLONG;
+ 
+     if (size == 0)
+         return convert_windows_error_code(GetLastError());
+ 
++    // Drop the \\?\ prefix, which turns off path normalisation: callers
++    // append "/.." and combine relative paths onto the result.
++    // \\?\UNC\server\share -> \\server\share, \\?\C:\x -> C:\x.
++    if (size >= 8 && wcsncmp(buf, L"\\\\?\\UNC\\", 8) == 0)
++        memmove(buf + 2, buf + 8, (size - 8 + 1) * sizeof(wchar_t));
++    else if (size >= 4 && wcsncmp(buf, L"\\\\?\\", 4) == 0)
++        memmove(buf, buf + 4, (size - 4 + 1) * sizeof(wchar_t));
++
+     return __WASI_ESUCCESS;
+ }
+ 
+@@ -1730,12 +1741,21 @@
+     CHECK_VALID_WIN_DIR_STREAM(dir_stream);
+ 
+     FILE_ID_BOTH_DIR_INFO *file_id_both_dir_info = NULL;
++    int cookie = dir_stream->cookie;
+ 
+     __wasi_errno_t error =
+         read_next_dir_entry(dir_stream, &file_id_both_dir_info);
+ 
+-    if (error != __WASI_ESUCCESS || file_id_both_dir_info == NULL)
++    if (error != __WASI_ESUCCESS || file_id_both_dir_info == NULL) {
++        // At the end, read_next_dir_entry rewinds the stream (cookie 0), so
++        // the next read would start the listing over while fd_readdir still
++        // holds the old offset: a reader that asks again past the end gets
++        // the first entries again, and never sees the end. Stay at the end,
++        // as readdir does; reading on reports no more files.
++        if (error == __WASI_ESUCCESS)
++            dir_stream->cookie = cookie;
+         return error;
++    }
+ 
+     entry->d_ino = (__wasi_inode_t)file_id_both_dir_info->FileId.QuadPart;
+     entry->d_namlen = (__wasi_dirnamlen_t)(file_id_both_dir_info->FileNameLength

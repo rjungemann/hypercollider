@@ -200,6 +200,9 @@ set(hclang_sources ${sclang_sources})
     # calls hc_wasm_classlib_preload_bytes before hc_wasm_eval_init.
     set(SC_CLASSLIB_PACK "${CMAKE_BINARY_DIR}/lang/hclang/hclang_classlib.pack")
     set(SC_PACK_SCRIPT "${CMAKE_SOURCE_DIR}/tools/pack_sc_classlib.js")
+    # Repack when a class file changes, not only when the script does.
+    file(GLOB_RECURSE SC_CLASSLIB_SOURCES CONFIGURE_DEPENDS
+         "${CMAKE_SOURCE_DIR}/src/class_library/*.sc")
     add_custom_command(
         OUTPUT "${SC_CLASSLIB_PACK}"
         COMMAND node "${SC_PACK_SCRIPT}"
@@ -214,7 +217,7 @@ set(hclang_sources ${sclang_sources})
                 --exclude "${CMAKE_SOURCE_DIR}/src/class_library/Common/Collections/linux"
                 --exclude "${CMAKE_SOURCE_DIR}/src/class_library/Common/Audio/iphone"
                 --output "${SC_CLASSLIB_PACK}"
-        DEPENDS "${SC_PACK_SCRIPT}"
+        DEPENDS "${SC_PACK_SCRIPT}" ${SC_CLASSLIB_SOURCES}
         COMMENT "Packing SC class library → hclang_classlib.pack"
         VERBATIM
     )

@@ -160,24 +160,27 @@ configure_file(build_sclang.cfg.in ${CMAKE_CURRENT_BINARY_DIR}/build_sclang.cfg)
 # CLI distribution target (WASM only)
 #
 # `cmake --build build/wasm --target cli` assembles a self-contained
-# CLI bundle under build/wasm/cli/ containing the WASM artifacts
-# and the Node.js wrapper scripts from cli/.
+# CLI bundle under build/wasm/cli/ containing the Node.js wrapper scripts
+# from cli/ and, under libexec/, the WASM artifacts. The modules go in their
+# own directory because two of them share a name with a wrapper (hclang.js,
+# hcsynth.js); the release tarball uses the same layout.
 set(CLI_BUNDLE_DIR "${CMAKE_BINARY_DIR}/cli")
+set(CLI_LIBEXEC_DIR "${CLI_BUNDLE_DIR}/libexec")
 
 add_custom_target(cli
     DEPENDS hcsynth hclang
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CLI_BUNDLE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CLI_LIBEXEC_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/cli"
         "${CLI_BUNDLE_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_BINARY_DIR}/server/hcsynth/hcsynth.js"
         "${CMAKE_BINARY_DIR}/server/hcsynth/hcsynth.wasm"
-        "${CLI_BUNDLE_DIR}"
+        "${CLI_LIBEXEC_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_BINARY_DIR}/lang/hclang/hclang.js"
         "${CMAKE_BINARY_DIR}/lang/hclang/hclang.wasm"
-        "${CLI_BUNDLE_DIR}"
+        "${CLI_LIBEXEC_DIR}"
     COMMENT "Assembling CLI bundle → ${CLI_BUNDLE_DIR}"
 )
 
@@ -186,7 +189,7 @@ add_custom_command(TARGET cli POST_BUILD
     COMMAND ${CMAKE_COMMAND}
         -DSCSYNTH_DATA="${CMAKE_BINARY_DIR}/server/hcsynth/hcsynth.data"
         -DSCLANG_DATA="${CMAKE_BINARY_DIR}/lang/hclang/hclang.data"
-        -DDEST_DIR="${CLI_BUNDLE_DIR}"
+        -DDEST_DIR="${CLI_LIBEXEC_DIR}"
         -P "${CMAKE_SOURCE_DIR}/cmake_modules/copy_data_files.cmake"
     COMMENT "Copying optional .data files to CLI bundle"
 )

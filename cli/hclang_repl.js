@@ -188,8 +188,8 @@ async function runReplInProcessMode(opts) {
   ]);
 
   const unixBridge = createUnixBridge(sclang);
-  sclang.__hc_wasm_unix_bridge = unixBridge;
-  globalThis.__hc_wasm_unix_bridge = unixBridge;
+  sclang.__sc_wasm_unix_bridge = unixBridge;
+  globalThis.__sc_wasm_unix_bridge = unixBridge;
 
   const worldId = scsynth._hc_wasm_world_create(opts.sampleRate, opts.blockSize);
   if (!worldId) throw new Error('hc_wasm_world_create failed');
@@ -208,8 +208,8 @@ async function runReplInProcessMode(opts) {
     }
   };
 
-  globalThis.__hc_wasm_forward_osc_to_engine = oscBridge;
-  sclang.__hc_wasm_forward_osc_to_engine = oscBridge;
+  globalThis.__sc_wasm_forward_osc_to_engine = oscBridge;
+  sclang.__sc_wasm_forward_osc_to_engine = oscBridge;
 
   const postCb = sclang.addFunction((ptr, len) => {
     const text = sclang.UTF8ToString(ptr, len);
@@ -238,12 +238,12 @@ async function runReplInProcessMode(opts) {
     serviceBrowser = browseLan({
       onFound(name, host, port, protocol) {
         if (protocol === 'udp' && name === opts.zeroconfName) {
-          const code = `NetAddr._zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
+          const code = `NetAddr.zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
           replEvalCode(code);
         }
       },
       onLost(name) {
-        const code = `NetAddr._zeroconfLost(${JSON.stringify(name)});`;
+        const code = `NetAddr.zeroconfLost(${JSON.stringify(name)});`;
         replEvalCode(code);
       },
       type: 'osc',
@@ -362,8 +362,8 @@ async function runReplInProcessMode(opts) {
 
   const midiBridge = tryCreateMidiBridge(sclang);
   if (midiBridge && midiBridge.provider !== 'none') {
-    sclang.__hc_wasm_midi_bridge = midiBridge;
-    globalThis.__hc_wasm_midi_bridge = midiBridge;
+    sclang.__sc_wasm_midi_bridge = midiBridge;
+    globalThis.__sc_wasm_midi_bridge = midiBridge;
   }
 
   function replEvalCode(code) {
@@ -404,8 +404,8 @@ async function runReplNetworkMode(opts) {
   });
 
   const unixBridge = createUnixBridge(sclang);
-  sclang.__hc_wasm_unix_bridge = unixBridge;
-  globalThis.__hc_wasm_unix_bridge = unixBridge;
+  sclang.__sc_wasm_unix_bridge = unixBridge;
+  globalThis.__sc_wasm_unix_bridge = unixBridge;
 
   let tcpSocket = null;
   let udpClient = null;
@@ -475,8 +475,8 @@ async function runReplNetworkMode(opts) {
     return 0;
   };
 
-  globalThis.__hc_wasm_forward_osc_to_engine = oscBridge;
-  sclang.__hc_wasm_forward_osc_to_engine = oscBridge;
+  globalThis.__sc_wasm_forward_osc_to_engine = oscBridge;
+  sclang.__sc_wasm_forward_osc_to_engine = oscBridge;
 
   const postCb = sclang.addFunction((ptr, len) => {
     const text = sclang.UTF8ToString(ptr, len);
@@ -511,12 +511,12 @@ async function runReplNetworkMode(opts) {
     serviceBrowser = browseLan({
       onFound(name, host, port, protocol) {
         if (protocol === 'udp' && name === opts.zeroconfName) {
-          const code = `NetAddr._zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
+          const code = `NetAddr.zeroconfFound(${JSON.stringify(name)}, ${JSON.stringify(host)}, ${port});`;
           replEvalCode(code);
         }
       },
       onLost(name) {
-        const code = `NetAddr._zeroconfLost(${JSON.stringify(name)});`;
+        const code = `NetAddr.zeroconfLost(${JSON.stringify(name)});`;
         replEvalCode(code);
       },
       type: 'osc',

@@ -157,6 +157,12 @@ Main : Process {
 		^argv ?? { argv = this.prArgv }
 	}
 
+	// hclang.js runs `thisProcess.argv = [...]` before the script, so a script
+	// sees its own arguments rather than the host's.
+	argv_ { |list|
+		argv = list
+	}
+
 	showHelpBrowser {
 		HelpBrowser.openBrowsePage;
 	}

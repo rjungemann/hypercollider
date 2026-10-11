@@ -125,6 +125,8 @@ static int resolve_at(int dirfd, const char* path,
 // __syscall_openat
 // ============================================================================
 
+static void reset_dirstate(int fd);
+
 int __syscall_openat(int dirfd, intptr_t path_ptr, int flags, ...) {
     const char* path = (const char*)path_ptr;
     if (!path) return -EFAULT;
@@ -176,6 +178,9 @@ int __syscall_openat(int dirfd, intptr_t path_ptr, int flags, ...) {
         fdflags, &result_fd);
     if (err != 0) return -(int)err;
 
+    // fd numbers are reused once closed: a directory opened on this fd must
+    // start reading from its beginning, not where the last one stopped.
+    reset_dirstate((int)result_fd);
     return (int)result_fd;
 }
 
@@ -277,6 +282,15 @@ static struct dirstate* get_dirstate(int fd) {
         }
     }
     return NULL;
+}
+
+static void reset_dirstate(int fd) {
+    for (int i = 0; i < DIRSTATE_MAX; i++) {
+        if (g_dirstates[i].fd == fd) {
+            g_dirstates[i].fd = 0;
+            g_dirstates[i].cookie = 0;
+        }
+    }
 }
 
 int __syscall_getdents64(int fd, intptr_t dirp_ptr, size_t count) {
