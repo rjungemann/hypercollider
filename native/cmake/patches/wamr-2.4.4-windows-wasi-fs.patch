@@ -45,9 +45,9 @@ Neither is fixed upstream (WAMR-2.4.4, main).
 +    // append "/.." and combine relative paths onto the result.
 +    // \\?\UNC\server\share -> \\server\share, \\?\C:\x -> C:\x.
 +    if (size >= 8 && wcsncmp(buf, L"\\\\?\\UNC\\", 8) == 0)
-+        wmemmove(buf + 2, buf + 8, size - 8 + 1);
++        memmove(buf + 2, buf + 8, (size - 8 + 1) * sizeof(wchar_t));
 +    else if (size >= 4 && wcsncmp(buf, L"\\\\?\\", 4) == 0)
-+        wmemmove(buf, buf + 4, size - 4 + 1);
++        memmove(buf, buf + 4, (size - 4 + 1) * sizeof(wchar_t));
 +
      return __WASI_ESUCCESS;
  }

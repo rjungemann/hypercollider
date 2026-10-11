@@ -12,7 +12,8 @@
 # update step always runs, and the patch step follows it), which fails on the
 # second configure with "Reversed (or previously applied) patch detected".
 # Here an already-applied patch is a no-op: `git apply --reverse --check`
-# succeeding means it is in.
+# succeeding means it is in. When an earlier version of the patch is in, the
+# files it touches are checked out as fetched and this version applied.
 #
 # Line endings: a Windows checkout with core.autocrlf gives CRLF in both the
 # fetched sources and this repository's .patch file. The files the patch
@@ -34,17 +35,25 @@ file(WRITE "${lf_patch}" "${patch_text}")
 
 # The files the patch changes: its "+++ b/<path>" lines.
 string(REGEX MATCHALL "\n\\+\\+\\+ b/[^\n\t]+" targets "\n${patch_text}")
+set(paths)
 foreach(target IN LISTS targets)
     string(REGEX REPLACE "^\n\\+\\+\\+ b/" "" path "${target}")
-    if(EXISTS "${path}")
-        file(READ "${path}" text)
-        file(SIZE "${path}" size)
-        string(LENGTH "${text}" length)
-        if(NOT size EQUAL length) # CRs were dropped: write it back as LF
-            file(WRITE "${path}" "${text}")
-        endif()
-    endif()
+    list(APPEND paths "${path}")
 endforeach()
+
+macro(normalise_paths)
+    foreach(path IN LISTS paths)
+        if(EXISTS "${path}")
+            file(READ "${path}" text)
+            file(SIZE "${path}" size)
+            string(LENGTH "${text}" length)
+            if(NOT size EQUAL length) # CRs were dropped: write it back as LF
+                file(WRITE "${path}" "${text}")
+            endif()
+        endif()
+    endforeach()
+endmacro()
+normalise_paths()
 
 execute_process(
     COMMAND "${GIT}" apply --reverse --check "${lf_patch}"
@@ -53,6 +62,18 @@ execute_process(
 if(already_applied EQUAL 0)
     message(STATUS "Patch already applied: ${patch_name}")
     return()
+endif()
+
+# Neither in nor applicable: an earlier version of the patch is in. Put the
+# files back as fetched and apply this one.
+execute_process(
+    COMMAND "${GIT}" apply --check "${lf_patch}"
+    RESULT_VARIABLE applicable
+    OUTPUT_QUIET ERROR_QUIET)
+if(NOT applicable EQUAL 0)
+    message(STATUS "Patch changed since it was applied; restoring ${paths}")
+    execute_process(COMMAND "${GIT}" checkout -- ${paths})
+    normalise_paths()
 endif()
 
 execute_process(
